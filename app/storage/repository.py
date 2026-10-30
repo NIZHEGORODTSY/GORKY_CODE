@@ -1,6 +1,7 @@
+import re
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,7 +53,7 @@ class EventRepository:
         user_id: int,
         start: datetime,
         end: datetime,
-        kind: EventKind | None = None,
+        kinds: set[EventKind] | None = None,
         include_closed: bool = False,
     ) -> list[Event]:
         """События с starts_at в полуинтервале [start, end), по возрастанию времени."""
@@ -61,11 +62,31 @@ class EventRepository:
             EventRow.starts_at >= start,
             EventRow.starts_at < end,
         )
-        if kind is not None:
-            q = q.where(EventRow.kind == kind.value)
+        if kinds:
+            q = q.where(EventRow.kind.in_([k.value for k in kinds]))
         if not include_closed:
             q = q.where(EventRow.status == EventStatus.OPEN.value)
         rows = await self._s.scalars(q.order_by(EventRow.starts_at))
+        return [r.to_domain() for r in rows]
+
+    async def search_text(
+        self,
+        user_id: int,
+        query: str,
+        kinds: set[EventKind] | None = None,
+        limit: int = 5,
+    ) -> list[Event]:
+        """Полнотекстовый поиск по названию (русская морфология), слова через ИЛИ."""
+        words = [w for w in re.findall(r"\w+", query.lower()) if len(w) > 1]
+        if not words:
+            return []
+        tsquery = func.to_tsquery("russian", " | ".join(f"{w}:*" for w in words))
+        tsvector = func.to_tsvector("russian", EventRow.title)
+        q = select(EventRow).where(EventRow.user_id == user_id, tsvector.op("@@")(tsquery))
+        if kinds:
+            q = q.where(EventRow.kind.in_([k.value for k in kinds]))
+        q = q.order_by(func.ts_rank(tsvector, tsquery).desc(), EventRow.starts_at.desc().nulls_last())
+        rows = await self._s.scalars(q.limit(limit))
         return [r.to_domain() for r in rows]
 
     async def set_status(self, user_id: int, event_id: int, status: EventStatus) -> bool:

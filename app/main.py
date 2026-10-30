@@ -6,6 +6,7 @@ from aiogram import Bot, Dispatcher
 from app.assistant.service import Assistant
 from app.bot.handlers import router
 from app.config import get_settings
+from app.llm.gigachat_client import GigaChatClient
 from app.storage.db import make_engine, make_session_factory
 
 
@@ -14,7 +15,14 @@ async def main() -> None:
     logging.basicConfig(level=settings.log_level)
 
     engine = make_engine(settings.database_url)
-    assistant = Assistant(make_session_factory(engine), settings.default_timezone)
+    llm = GigaChatClient(
+        credentials=settings.gigachat_credentials,
+        scope=settings.gigachat_scope,
+        model=settings.gigachat_model,
+        ca_bundle=settings.sber_ca_bundle,
+        embeddings_model=settings.gigachat_embeddings_model,
+    )
+    assistant = Assistant(make_session_factory(engine), llm, settings.default_timezone)
 
     bot = Bot(settings.bot_token)
     dp = Dispatcher(assistant=assistant)
@@ -23,6 +31,7 @@ async def main() -> None:
         await dp.start_polling(bot)
     finally:
         await bot.session.close()
+        await llm.close()
         await engine.dispose()
 
 
