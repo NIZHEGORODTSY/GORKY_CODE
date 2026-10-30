@@ -1,6 +1,7 @@
 """Тексты профиля бота и меню команд."""
 
-from aiogram.types import BotCommand
+from aiogram import Bot
+from aiogram.types import BotCommand, MenuButtonCommands, MenuButtonWebApp, WebAppInfo
 
 NAME = "Горький · голосовой планировщик"
 
@@ -21,3 +22,12 @@ COMMANDS = [
     BotCommand(command="week", description="🗓 План на неделю"),
     BotCommand(command="help", description="❓ Что я умею"),
 ]
+
+
+async def setup_menu_button(bot: Bot, webapp_url: str) -> None:
+    """Кнопка слева от поля ввода: календарь, если Mini App доступен по HTTPS, иначе меню команд."""
+    if webapp_url:
+        button = MenuButtonWebApp(text="Календарь", web_app=WebAppInfo(url=webapp_url))
+    else:
+        button = MenuButtonCommands()
+    await bot.set_chat_menu_button(menu_button=button)

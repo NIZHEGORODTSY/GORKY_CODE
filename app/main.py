@@ -8,6 +8,7 @@ from aiogram.enums import ParseMode
 from app.assistant.service import Assistant
 from app.bot.handlers import router
 from app.bot.notifier import run_notifier
+from app.bot.profile import setup_menu_button
 from app.config import get_settings
 from app.llm.gigachat_client import GigaChatClient
 from app.speech.edge import EdgeTTS
@@ -37,8 +38,9 @@ async def main() -> None:
     tts = EdgeTTS(settings.tts_voice)
 
     bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = Dispatcher(assistant=assistant, stt=stt, tts=tts, webapp_url=settings.webapp_url)
+    dp = Dispatcher(assistant=assistant, stt=stt, tts=tts, webapp_url=settings.public_webapp_url)
     dp.include_router(router)
+    await setup_menu_button(bot, settings.public_webapp_url)
     notifier = asyncio.create_task(run_notifier(bot, session_factory))
     webapp = await start_webapp(
         create_app(settings.bot_token, assistant, session_factory, settings.default_timezone),

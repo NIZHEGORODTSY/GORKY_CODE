@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     # Публичный HTTPS-адрес Mini App (календарь); пусто — кнопка календаря не показывается
     webapp_url: str = ""
+    webapp_domain: str = ""  # если WEBAPP_URL пуст, адрес собирается как https://<домен>/app/
     webapp_host: str = "0.0.0.0"
     webapp_port: int = 8080
 
@@ -25,6 +26,13 @@ class Settings(BaseSettings):
 
     default_timezone: str = "Europe/Moscow"
     log_level: str = "INFO"
+
+
+    @property
+    def public_webapp_url(self) -> str:
+        if self.webapp_url:
+            return self.webapp_url
+        return f"https://{self.webapp_domain}/app/" if self.webapp_domain else ""
 
 
 @lru_cache
