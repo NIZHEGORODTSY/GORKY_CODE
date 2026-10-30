@@ -1,13 +1,13 @@
 from typing import Protocol
 
 
-class SpeechClient(Protocol):
-    async def recognize(self, ogg_opus: bytes) -> str:
-        """Голосовое сообщение Telegram (OGG/Opus) -> текст."""
-        ...
-
-    async def synthesize(self, text: str) -> bytes:
-        """Текст -> OGG/Opus, пригодный для sendVoice."""
-        ...
+class SpeechToText(Protocol):
+    async def recognize(self, audio: bytes, filename: str, mime: str) -> str: ...
 
     async def close(self) -> None: ...
+
+
+class TextToSpeech(Protocol):
+    mime: str  # формат результата, например audio/mpeg
+
+    async def synthesize(self, text: str) -> bytes: ...

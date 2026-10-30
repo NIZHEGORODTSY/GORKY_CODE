@@ -8,7 +8,8 @@ from app.bot.handlers import router
 from app.bot.notifier import run_notifier
 from app.config import get_settings
 from app.llm.gigachat_client import GigaChatClient
-from app.speech.salute import SaluteSpeechClient
+from app.speech.edge import EdgeTTS
+from app.speech.gigachat_stt import GigaChatSTT
 from app.storage.db import make_engine, make_session_factory
 
 
@@ -27,14 +28,13 @@ async def main() -> None:
     )
     assistant = Assistant(session_factory, llm, settings.default_timezone)
 
-    speech = None
-    if settings.salute_speech_credentials:
-        speech = SaluteSpeechClient(
-            settings.salute_speech_credentials, settings.salute_speech_scope, settings.sber_ca_bundle
-        )
+    stt = GigaChatSTT(
+        settings.gigachat_credentials, settings.gigachat_scope, settings.gigachat_model, settings.sber_ca_bundle
+    )
+    tts = EdgeTTS(settings.tts_voice)
 
     bot = Bot(settings.bot_token)
-    dp = Dispatcher(assistant=assistant, speech=speech)
+    dp = Dispatcher(assistant=assistant, stt=stt, tts=tts)
     dp.include_router(router)
     notifier = asyncio.create_task(run_notifier(bot, session_factory))
     try:
@@ -43,8 +43,7 @@ async def main() -> None:
         notifier.cancel()
         await bot.session.close()
         await llm.close()
-        if speech:
-            await speech.close()
+        await stt.close()
         await engine.dispose()
 
 

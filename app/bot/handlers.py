@@ -5,7 +5,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import BufferedInputFile, Message
 
 from app.assistant.service import Assistant
-from app.speech.base import SpeechClient
+from app.speech.base import SpeechToText, TextToSpeech
 
 log = logging.getLogger(__name__)
 router = Router()
@@ -32,13 +32,12 @@ async def on_text(message: Message, assistant: Assistant) -> None:
 
 
 @router.message(F.voice)
-async def on_voice(message: Message, bot: Bot, assistant: Assistant, speech: SpeechClient | None) -> None:
-    if speech is None:
-        await message.answer("Голосовые сейчас не поддерживаются — напиши текстом.")
-        return
+async def on_voice(
+    message: Message, bot: Bot, assistant: Assistant, stt: SpeechToText, tts: TextToSpeech
+) -> None:
     audio = await bot.download(message.voice)
     try:
-        text = await speech.recognize(audio.read())
+        text = await stt.recognize(audio.read(), "voice.ogg", message.voice.mime_type or "audio/ogg")
     except Exception:
         log.exception("STT failed")
         await message.answer("Не получилось распознать голосовое — попробуй ещё раз или напиши текстом.")
@@ -50,8 +49,8 @@ async def on_voice(message: Message, bot: Bot, assistant: Assistant, speech: Spe
     reply = await assistant.handle(message.from_user.id, text)
     await message.answer(f"🎙 «{text}»\n\n{reply}")
     try:
-        voice = await speech.synthesize(reply)
-        await message.answer_voice(BufferedInputFile(voice, filename="reply.ogg"))
+        voice = await tts.synthesize(reply)
+        await message.answer_voice(BufferedInputFile(voice, filename="reply.mp3"))
     except Exception:
         # Текстовый ответ уже отправлен — без голоса пользователь ничего не теряет
         log.exception("TTS failed")

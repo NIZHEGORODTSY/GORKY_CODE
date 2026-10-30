@@ -14,8 +14,7 @@ class Settings(BaseSettings):
     gigachat_model: str = "GigaChat-3-Pro"
     gigachat_embeddings_model: str = "Embeddings"
 
-    salute_speech_credentials: str = ""
-    salute_speech_scope: str = "SALUTE_SPEECH_PERS"
+    tts_voice: str = "ru-RU-SvetlanaNeural"
 
     sber_ca_bundle: str = ""
 
