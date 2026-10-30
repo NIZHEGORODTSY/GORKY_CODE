@@ -22,6 +22,7 @@ from app.bot.keyboards import (
     BTN_MENU,
     TZ_LABEL,
     back_only,
+    demo_actions,
     event_actions,
     export_actions,
     home_actions,
@@ -59,7 +60,15 @@ HELP = (
 )
 
 COMMAND_VIEWS = {"menu": "home", "today": "d", "tomorrow": "d+1", "week": "w", "tasks": "t",
-                 "calendar": "export", "settings": "settings", "help": "help"}
+                 "calendar": "export", "settings": "settings", "help": "help", "demo": "demo"}
+
+DEMO_TRY = (
+    "Попробуй спросить:\n"
+    "🔎 «Найди задачу про договор»\n"
+    "🔎 «Когда у меня была встреча с Иваном?»\n"
+    "🔎 «Когда будет созвон с Альфой?»\n"
+    "📅 «Что у меня на этой неделе?» · «Что было 15 января 2024?»"
+)
 
 
 # --- вход в панель -------------------------------------------------------------
@@ -68,7 +77,8 @@ COMMAND_VIEWS = {"menu": "home", "today": "d", "tomorrow": "d+1", "week": "w", "
 async def on_start(message: Message, bot: Bot, assistant: Assistant, webapp_url: str, public_base: str) -> None:
     await message.answer(
         "👋 Привет! Я голосовой планировщик. Напиши или скажи, что запланировать, — "
-        "а все разделы в меню ниже.",
+        "а все разделы в меню ниже.\n\n"
+        "Проверяешь тестовое задание? В меню «📥 Демо-данные из задания» — загрузка 1000 записей из CSV.",
         reply_markup=reply_menu(webapp_url),
     )
     await _show_panel(bot, message.chat.id, *await _render(assistant, message.from_user.id, "home", None, public_base))
@@ -112,6 +122,21 @@ async def on_settings_button(callback: CallbackQuery, assistant: Assistant, publ
     result = await assistant.run_action(callback.from_user.id, ToolCall("update_settings", args))
     await callback.answer(_head(result))
     await _edit_panel(callback, *await _render(assistant, callback.from_user.id, "settings", None, public_base))
+
+
+@router.callback_query(F.data.startswith("demo:"))
+async def on_demo(callback: CallbackQuery, assistant: Assistant, public_base: str) -> None:
+    uid = callback.from_user.id
+    if callback.data == "demo:load":
+        await callback.answer("Загружаю…")
+        count = await assistant.load_demo(uid)
+        note = f"📥 Загрузил {count} записей." if count else "Демо-данные уже загружены."
+    else:
+        count = await assistant.clear_demo(uid)
+        await callback.answer()
+        note = f"🧹 Убрал {count} демо-записей. Твои собственные записи не тронуты."
+    text, markup = await _render(assistant, uid, "demo", None, public_base)
+    await _edit_panel(callback, f"{note}\n\n{text}", markup)
 
 
 @router.callback_query(F.data == "x:ics")
@@ -198,6 +223,18 @@ async def _render(assistant: Assistant, user_id: int, view: str, anchor: date | 
         return await _home(assistant, user_id)
     if view == "help":
         return HELP, back_only()
+    if view == "demo":
+        count = await assistant.demo_count(user_id)
+        if count:
+            text = f"📥 <b>Демо-данные загружены</b> — {count} записей из CSV тестового задания (2024–2027).\n\n{DEMO_TRY}"
+        else:
+            text = (
+                "📥 <b>Демо-данные из задания</b>\n\n"
+                "К тестовому заданию приложен файл с 1000 записей (задачи, напоминания и встречи "
+                "за 2024–2027 годы). Загрузи их в свой аккаунт, чтобы попробовать поиск и списки. "
+                "Убрать можно в любой момент — твои собственные записи не пострадают."
+            )
+        return text, demo_actions(bool(count))
     if view == "settings":
         s = await assistant.settings(user_id)
         return _settings_text(s), settings_actions(s)

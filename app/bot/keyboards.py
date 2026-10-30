@@ -3,11 +3,12 @@
 Интерфейс — одна «панель»: сообщение, которое перерисовывается на месте при навигации.
 
 callback_data (≤ 64 байт):
-    v:<home|t|export|settings|tz|help>     открыть раздел панели
+    v:<home|t|export|settings|tz|help|demo> открыть раздел панели
     v:<d|w>:<YYYY-MM-DD>                   день / неделя (листание)
     ls:<id>:<d|w|t>:<YYYY-MM-DD>           выполнить пункт списка и перерисовать раздел
     set:<voice|digest|tz>:<значение>       изменить настройку
     x:ics                                  прислать файл .ics
+    demo:<load|clear>                      загрузить / убрать демо-данные из задания
     ev:<done|del|ics>:<id>                 действие с записью из ответа бота
     ev:snooze:<id>:<минуты>                отложить напоминание
     ev:undo:<id>[:<epoch>]                 вернуть удалённое / выполненное
@@ -68,7 +69,13 @@ def home_actions(today: date) -> InlineKeyboardMarkup:
         [btn("📅 Сегодня", f"v:d:{today}"), btn("➡️ Завтра", f"v:d:{tomorrow}"), btn("🗓 Неделя", f"v:w:{today}")],
         [btn("📝 Задачи", "v:t"), btn("📆 В календарь", "v:export")],
         [btn("⚙️ Настройки", "v:settings"), btn("❓ Что я умею", "v:help")],
+        [btn("📥 Демо-данные из задания", "v:demo")],
     ])
+
+
+def demo_actions(loaded: bool) -> InlineKeyboardMarkup:
+    action = btn("🧹 Убрать демо-данные", "demo:clear") if loaded else btn("📥 Загрузить 1000 записей", "demo:load")
+    return InlineKeyboardMarkup(inline_keyboard=[[action], BACK_TO_MENU])
 
 
 def back_only() -> InlineKeyboardMarkup:

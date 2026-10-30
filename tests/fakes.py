@@ -53,7 +53,7 @@ class FakeEventRepository:
     async def list_recent(self, user_id, kinds=None, limit=200):
         return [e for e in reversed(self.events) if e.user_id == user_id and (not kinds or e.kind in kinds)][:limit]
 
-    async def search_text(self, user_id, query, kinds=None, limit=5):
+    async def search_text(self, user_id, query, kinds=None, limit=5, before=None, after=None):
         words = [w[:5] for w in query.lower().split()]
         return [
             e for e in self.events

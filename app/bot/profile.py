@@ -25,6 +25,7 @@ COMMANDS = [
     BotCommand(command="tasks", description="📝 Все открытые задачи"),
     BotCommand(command="calendar", description="📆 Добавить планы в календарь телефона"),
     BotCommand(command="settings", description="⚙️ Часовой пояс, сводка, голос"),
+    BotCommand(command="demo", description="📥 Демо-данные из тестового задания"),
     BotCommand(command="help", description="❓ Что я умею"),
 ]
 

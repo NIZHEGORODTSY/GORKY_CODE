@@ -3,7 +3,7 @@ import secrets
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -126,21 +126,36 @@ class EventRepository:
         query: str,
         kinds: set[EventKind] | None = None,
         limit: int = 5,
+        before: datetime | None = None,
+        after: datetime | None = None,
     ) -> list[Event]:
-        """Полнотекстовый поиск по названию (русская морфология), слова через ИЛИ."""
+        """Полнотекстовый поиск по названию (русская морфология), слова через ИЛИ.
+
+        Сначала самые релевантные, при равенстве — ближайшие к текущему моменту.
+        before/after — только записи раньше / не раньше этого момента («когда была встреча…»).
+        """
         words = [w for w in re.findall(r"\w+", query.lower()) if len(w) > 1]
         if not words:
             return []
-        tsquery = func.to_tsquery("russian", " | ".join(f"{w}:*" for w in words))
         tsvector = func.to_tsvector("russian", EventRow.title)
-        q = select(EventRow).where(
-            EventRow.user_id == user_id, EventRow.status != EventStatus.CANCELLED.value, tsvector.op("@@")(tsquery)
-        )
-        if kinds:
-            q = q.where(EventRow.kind.in_([k.value for k in kinds]))
-        q = q.order_by(func.ts_rank(tsvector, tsquery).desc(), EventRow.starts_at.desc().nulls_last())
-        rows = await self._s.scalars(q.limit(limit))
-        return [r.to_domain() for r in rows]
+        distance = func.abs(func.extract("epoch", EventRow.starts_at - func.now()))
+        # Сначала записи со всеми словами («созвон с Альфой» — только с Альфой), затем хотя бы с одним
+        for operator in (" & ", " | "):
+            tsquery = func.to_tsquery("russian", operator.join(f"{w}:*" for w in words))
+            q = select(EventRow).where(
+                EventRow.user_id == user_id, EventRow.status != EventStatus.CANCELLED.value, tsvector.op("@@")(tsquery)
+            )
+            if kinds:
+                q = q.where(EventRow.kind.in_([k.value for k in kinds]))
+            if before is not None:
+                q = q.where(EventRow.starts_at < before)
+            if after is not None:
+                q = q.where(EventRow.starts_at >= after)
+            q = q.order_by(func.ts_rank(tsvector, tsquery).desc(), distance.asc().nulls_last())
+            rows = list(await self._s.scalars(q.limit(limit)))
+            if rows:
+                return [r.to_domain() for r in rows]
+        return []
 
     async def list_recent(self, user_id: int, kinds: set[EventKind] | None = None, limit: int = 200) -> list[Event]:
         """Последние созданные записи — кандидаты для поиска по смыслу."""
@@ -254,6 +269,31 @@ class EventRepository:
             .order_by(EventRow.starts_at)
         )
         return [r.to_domain() for r in rows]
+
+    async def import_events(self, events: list[Event], source: str, notified_at: datetime) -> int:
+        """Массовая загрузка (демо-данные). notified_at проставлен — бот не шлёт по ним напоминаний."""
+        rows = [
+            EventRow(
+                user_id=e.user_id, kind=e.kind.value, title=e.title, starts_at=e.starts_at, ends_at=e.ends_at,
+                all_day=e.all_day, status=e.status.value, recurrence=e.recurrence, source=source,
+                notified_at=notified_at,
+            )
+            for e in events
+        ]
+        self._s.add_all(rows)
+        await self._s.flush()
+        return len(rows)
+
+    async def count_source(self, user_id: int, source: str) -> int:
+        return await self._s.scalar(
+            select(func.count()).select_from(EventRow).where(EventRow.user_id == user_id, EventRow.source == source)
+        )
+
+    async def delete_source(self, user_id: int, source: str) -> int:
+        result = await self._s.execute(
+            delete(EventRow).where(EventRow.user_id == user_id, EventRow.source == source)
+        )
+        return result.rowcount
 
 def expand_recurring(events: list[Event], start: datetime, end: datetime) -> list[Event]:
     """Повторяющиеся записи -> вхождения в [start, end) в поясе start; остальные как есть."""

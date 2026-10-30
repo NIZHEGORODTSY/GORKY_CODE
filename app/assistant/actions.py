@@ -156,7 +156,10 @@ class Actions:
         query = (args.get("query") or "").strip()
         if not query:
             raise Clarification("Что поискать?")
-        events = await self._find(query, KIND_FILTER.get(args.get("kind")))
+        scope = args.get("time_scope")
+        bounds = {"before": self._now} if scope == "past" else {"after": self._now} if scope == "future" else {}
+        text, kind = _split_type_words(query)
+        events = await self._find(text, KIND_FILTER.get(args.get("kind") or kind), **bounds)
         if not events:
             return ActionResult(f"🤷 Не нашёл записей про {q(query)}.")
         return ActionResult(fmt_found(events, self._tz, self._today), events)
@@ -294,8 +297,8 @@ class Actions:
             raise Clarification(f"🤔 Нашёл несколько, какую {verb}?\n{options}", found)
         return found[0]
 
-    async def _find(self, query: str, kinds) -> list[Event]:
-        events = await self._repo.search_text(self._user_id, query, kinds=kinds)
+    async def _find(self, query: str, kinds, **bounds) -> list[Event]:
+        events = await self._repo.search_text(self._user_id, query, kinds=kinds, **bounds)
         if not events and self._matcher is not None:
             candidates = await self._repo.list_recent(self._user_id, kinds=kinds)
             events = await self._matcher.match(query, candidates)
@@ -349,3 +352,19 @@ def _opt(parser, value):
         return parser(str(value))
     except ValueError:
         return None
+
+
+# Слова, которые в поисковом запросе означают тип записи, а не её содержание:
+# «задачу по договору» — ищем задачи со словом «договор», а не записи со словом «задача»
+TYPE_WORD_STEMS = {"задач": "task", "напомина": "task", "встреч": "meeting", "созвон": "meeting"}
+
+
+def _split_type_words(query: str) -> tuple[str, str | None]:
+    kind, rest = None, []
+    for word in query.split():
+        stem = next((s for s in TYPE_WORD_STEMS if word.lower().startswith(s)), None)
+        if stem:
+            kind = kind or TYPE_WORD_STEMS[stem]
+        else:
+            rest.append(word)
+    return (" ".join(rest), kind) if rest else (query, kind)

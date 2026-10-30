@@ -148,3 +148,12 @@ async def test_search_then_reschedule_follow_up():
     res = await run_tool_call(llm, [], ToolCall("search_events", {"query": "Иван"}), actions)
     assert (await repo.get(USER, e.id)).starts_at == datetime(2026, 10, 31, 17, tzinfo=MSK)
     assert "Перенёс" in res.text
+
+
+def test_split_type_words():
+    from app.assistant.actions import _split_type_words
+
+    assert _split_type_words("задача договор") == ("договор", "task")
+    assert _split_type_words("встреча с Иваном") == ("с Иваном", "meeting")
+    assert _split_type_words("встреча") == ("встреча", "meeting")
+    assert _split_type_words("презентация") == ("презентация", None)

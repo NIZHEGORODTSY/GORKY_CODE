@@ -40,6 +40,7 @@ class EventRow(Base):
     )
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     recurrence: Mapped[str | None] = mapped_column(String(32))
+    source: Mapped[str | None] = mapped_column(String(16))  # 'demo' — данные из тестового задания
 
     __table_args__ = (Index("ix_events_user_starts_at", "user_id", "starts_at"),)
 

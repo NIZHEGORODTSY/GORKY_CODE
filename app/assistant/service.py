@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.assistant.actions import ActionResult, Actions
 from app.assistant.prompt import build_system_prompt
 from app.core.dates import day_start
+from app.core.demo import DEMO_SOURCE, load_demo_events
 from app.core.formatting import KIND_ICON, fmt_list, fmt_when, plain
 from app.core.ics import build_calendar
 from app.core.models import Event, EventKind, UserSettings
@@ -171,3 +172,25 @@ class Assistant:
         result = ActionResult("📝 <b>Мои задачи</b>\n\n" + text if parts else text, overdue + upcoming + undated)
         self._remember(user_id, result)
         return result
+
+    # --- демо-данные из тестового задания ---------------------------------------
+
+    async def demo_count(self, user_id: int) -> int:
+        async with self._session_factory() as session, session.begin():
+            return await EventRepository(session).count_source(user_id, DEMO_SOURCE)
+
+    async def load_demo(self, user_id: int) -> int:
+        """Загрузить 1000 записей из CSV задания; повторно не дублирует."""
+        now, _ = await self._now(user_id)
+        async with self._session_factory() as session, session.begin():
+            repo = EventRepository(session)
+            if await repo.count_source(user_id, DEMO_SOURCE):
+                return 0
+            events = load_demo_events(user_id, now.tzinfo, now)
+            return await repo.import_events(events, DEMO_SOURCE, notified_at=now)
+
+    async def clear_demo(self, user_id: int) -> int:
+        async with self._session_factory() as session, session.begin():
+            removed = await EventRepository(session).delete_source(user_id, DEMO_SOURCE)
+        self._recent.pop(user_id, None)
+        return removed

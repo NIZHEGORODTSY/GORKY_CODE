@@ -108,7 +108,16 @@ SEARCH_EVENTS = ToolSpec(
                 "type": "string",
                 "description": "Ключевые слова о сути записи, 1–4 слова, например «договор» или «Иван встреча».",
             },
-            "kind": {"type": "string", "enum": ["meeting", "task"]},
+            "kind": {
+                "type": "string",
+                "enum": ["meeting", "task"],
+                "description": "meeting — если ищут встречу, созвон, демо; task — если ищут задачу или напоминание.",
+            },
+            "time_scope": {
+                "type": "string",
+                "enum": ["past", "future"],
+                "description": "past — если спрашивают о прошедшем («когда была», «ставил»), future — о предстоящем («когда будет»).",
+            },
         },
         "required": ["query"],
     },
