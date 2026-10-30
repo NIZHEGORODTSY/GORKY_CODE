@@ -35,7 +35,8 @@
 - **Хранение:** PostgreSQL 16, SQLAlchemy 2 (async, asyncpg), миграции Alembic.
 - **Поиск:** полнотекстовый Postgres (`russian`); если пусто — GigaChat выбирает подходящие из последних записей (эмбеддинги GigaChat платные).
 - **Напоминания:** бот сам присылает сообщение в момент напоминания (фоновая задача).
-- **Деплой:** свой VPS, `docker compose` (сервисы `db` и `bot`).
+- **Интерфейс-2:** Telegram Mini App (календарь) — aiohttp в процессе бота, порт 8080; HTTPS на VPS через Caddy (`--profile https`, нужен домен `WEBAPP_DOMAIN`).
+- **Деплой:** свой VPS, `docker compose` (сервисы `db`, `bot`, `caddy`).
 
 Структура (каждый модуль — зона ответственности, которую можно взять целиком):
 
@@ -47,7 +48,8 @@ app/
   speech/     # STT (GigaChat) / TTS (edge-tts)
   core/       # бизнес-логика: доменные модели, разбор дат, валидация, конфликты встреч
   storage/    # SQLAlchemy-таблицы, репозиторий
-  search/     # FTS + эмбеддинги, ранжирование
+  search/     # FTS + выбор GigaChat из последних записей
+  webapp/     # Mini App: календарь (static/index.html) + JSON API с проверкой initData
   config.py   # настройки из .env
   main.py     # точка входа
 migrations/   # Alembic

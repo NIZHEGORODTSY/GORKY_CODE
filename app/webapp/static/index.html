@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Мои планы</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --bg2: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --text: var(--tg-theme-text-color, #1c1c1e);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --accent: var(--tg-theme-button-color, #5b5bd6);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --danger: var(--tg-theme-destructive-text-color, #e5484d);
+    --task: #5b5bd6;
+    --reminder: #f59e0b;
+    --meeting: #10b981;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 16px 16px 32px; background: var(--bg2); color: var(--text);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .card { background: var(--bg); border-radius: 16px; padding: 14px; margin-bottom: 14px; }
+  .month { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .month h1 { font-size: 18px; margin: 0; text-transform: capitalize; }
+  .nav { border: 0; background: var(--bg2); color: var(--text); width: 36px; height: 36px; border-radius: 10px; font-size: 18px; cursor: pointer; }
+  .grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+  .wd { font-size: 12px; color: var(--hint); padding-bottom: 4px; }
+  .day {
+    position: relative; aspect-ratio: 1; border: 0; border-radius: 10px; background: transparent;
+    color: var(--text); font: inherit; cursor: pointer; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 3px;
+  }
+  .day.other { color: var(--hint); opacity: .45; }
+  .day.today { font-weight: 700; color: var(--accent); }
+  .day.selected { background: var(--accent); color: var(--accent-text); }
+  .dots { display: flex; gap: 2px; height: 5px; }
+  .dot { width: 5px; height: 5px; border-radius: 50%; }
+  .dot.task { background: var(--task); } .dot.reminder { background: var(--reminder); } .dot.meeting { background: var(--meeting); }
+  .day.selected .dot { background: var(--accent-text); }
+  h2 { font-size: 15px; margin: 0 0 8px; color: var(--hint); font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+  .ev { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--bg2); }
+  .ev:first-of-type { border-top: 0; }
+  .bar { width: 4px; align-self: stretch; border-radius: 2px; }
+  .bar.task { background: var(--task); } .bar.reminder { background: var(--reminder); } .bar.meeting { background: var(--meeting); }
+  .ev .body { flex: 1; min-width: 0; }
+  .ev .title { word-wrap: break-word; }
+  .ev .meta { font-size: 13px; color: var(--hint); }
+  .ev.done .title { text-decoration: line-through; color: var(--hint); }
+  .act { border: 0; background: var(--bg2); color: var(--text); width: 34px; height: 34px; border-radius: 10px; font-size: 16px; cursor: pointer; }
+  .act.del { color: var(--danger); }
+  .empty { color: var(--hint); text-align: center; padding: 18px 0 8px; }
+  .legend { display: flex; gap: 14px; justify-content: center; font-size: 12px; color: var(--hint); margin-top: 10px; }
+  .legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+  .lt::before { background: var(--task); } .lr::before { background: var(--reminder); } .lm::before { background: var(--meeting); }
+  .error { color: var(--danger); text-align: center; padding: 24px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="month">
+    <button class="nav" id="prev" aria-label="Предыдущий месяц">‹</button>
+    <h1 id="title"></h1>
+    <button class="nav" id="next" aria-label="Следующий месяц">›</button>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="legend"><span class="lt">задачи</span><span class="lr">напоминания</span><span class="lm">встречи</span></div>
+</div>
+<div class="card" id="dayCard"><h2 id="dayTitle"></h2><div id="dayList"></div></div>
+<div class="card" id="undatedCard" hidden><h2>Без срока</h2><div id="undatedList"></div></div>
+
+<script>
+const tg = window.Telegram.WebApp;
+tg.ready(); tg.expand();
+
+const MONTHS = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
+const MONTHS_GEN = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+const WEEKDAYS = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
+const KIND = { task: "задача", reminder: "напоминание", meeting: "встреча" };
+
+const state = { today: null, month: null, selected: null, events: [], undated: [] };
+
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const parse = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+async function api(path, options = {}) {
+  const res = await fetch(path, { ...options, headers: { Authorization: "tma " + tg.initData } });
+  if (!res.ok) throw new Error(res.status + " " + await res.text());
+  return res.json();
+}
+
+function gridRange(month) {
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const start = new Date(first); start.setDate(1 - ((first.getDay() + 6) % 7));
+  const end = new Date(start); end.setDate(start.getDate() + 41);
+  return [start, end];
+}
+
+async function load() {
+  const [start, end] = gridRange(state.month);
+  const data = await api(`/api/events?from=${iso(start)}&to=${iso(end)}`);
+  state.events = data.events; state.undated = data.undated;
+  if (!state.today) state.today = data.today;
+  render();
+}
+
+function render() {
+  document.getElementById("title").textContent = `${MONTHS[state.month.getMonth()]} ${state.month.getFullYear()}`;
+  const grid = document.getElementById("grid");
+  grid.replaceChildren(...WEEKDAYS.map(w => el("div", "wd", w)));
+  const byDay = {};
+  for (const e of state.events) (byDay[e.date] ||= []).push(e);
+
+  const [start] = gridRange(state.month);
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    const key = iso(d);
+    const btn = el("button", "day");
+    if (d.getMonth() !== state.month.getMonth()) btn.classList.add("other");
+    if (key === state.today) btn.classList.add("today");
+    if (key === state.selected) btn.classList.add("selected");
+    btn.append(el("span", null, d.getDate()));
+    const dots = el("div", "dots");
+    const kinds = [...new Set((byDay[key] || []).filter(e => e.status === "open").map(e => e.kind))];
+    kinds.forEach(k => dots.append(el("i", "dot " + k)));
+    btn.append(dots);
+    btn.onclick = () => { state.selected = key; tg.HapticFeedback.selectionChanged(); render(); };
+    grid.append(btn);
+  }
+
+  const sel = parse(state.selected);
+  const label = state.selected === state.today ? "Сегодня" : `${sel.getDate()} ${MONTHS_GEN[sel.getMonth()]}`;
+  document.getElementById("dayTitle").textContent = label;
+  const list = document.getElementById("dayList");
+  const items = (byDay[state.selected] || []).sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  list.replaceChildren(...(items.length ? items.map(row) : [el("div", "empty", "Свободный день 🌿 Скажи боту, что запланировать")]));
+
+  const undatedCard = document.getElementById("undatedCard");
+  undatedCard.hidden = !state.undated.length;
+  document.getElementById("undatedList").replaceChildren(...state.undated.map(row));
+}
+
+function row(e) {
+  const item = el("div", "ev" + (e.status === "done" ? " done" : ""));
+  item.append(el("div", "bar " + e.kind));
+  const body = el("div", "body");
+  body.append(el("div", "title", e.title));
+  const time = e.time ? (e.end_time ? `${e.time}–${e.end_time}` : e.time) : (e.date ? "весь день" : "");
+  body.append(el("div", "meta", [time, KIND[e.kind]].filter(Boolean).join(" · ")));
+  item.append(body);
+  if (e.status === "open") {
+    const done = el("button", "act", "✓"); done.title = "Выполнено";
+    done.onclick = () => act(e, "done");
+    const del = el("button", "act del", "🗑"); del.title = "Удалить";
+    del.onclick = () => tg.showConfirm(`Удалить «${e.title}»?`, ok => ok && act(e, "delete"));
+    item.append(done, del);
+  }
+  return item;
+}
+
+async function act(e, action) {
+  try {
+    await api(`/api/events/${e.id}/${action}`, { method: "POST" });
+    tg.HapticFeedback.notificationOccurred("success");
+    await load();
+  } catch (err) {
+    tg.HapticFeedback.notificationOccurred("error");
+    tg.showAlert("Не получилось, попробуй ещё раз");
+  }
+}
+
+function shiftMonth(delta) {
+  state.month = new Date(state.month.getFullYear(), state.month.getMonth() + delta, 1);
+  load().catch(showError);
+}
+document.getElementById("prev").onclick = () => shiftMonth(-1);
+document.getElementById("next").onclick = () => shiftMonth(1);
+
+tg.MainButton.setParams({ text: "🎙 Добавить голосом", is_visible: true });
+tg.MainButton.onClick(() => tg.close());
+
+function showError(err) {
+  console.error(err);
+  document.body.replaceChildren(el("div", "error", "Открой календарь из бота в Telegram — так я узнаю, чьи это планы."));
+}
+
+const now = new Date();
+state.month = new Date(now.getFullYear(), now.getMonth(), 1);
+state.selected = iso(now);
+load().catch(showError);
+</script>
+</body>
+</html>

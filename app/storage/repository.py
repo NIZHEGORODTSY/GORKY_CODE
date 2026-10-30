@@ -69,6 +69,19 @@ class EventRepository:
         rows = await self._s.scalars(q.order_by(EventRow.starts_at))
         return [r.to_domain() for r in rows]
 
+    async def list_undated(self, user_id: int) -> list[Event]:
+        """Открытые задачи без срока."""
+        rows = await self._s.scalars(
+            select(EventRow)
+            .where(
+                EventRow.user_id == user_id,
+                EventRow.starts_at.is_(None),
+                EventRow.status == EventStatus.OPEN.value,
+            )
+            .order_by(EventRow.created_at)
+        )
+        return [r.to_domain() for r in rows]
+
     async def search_text(
         self,
         user_id: int,

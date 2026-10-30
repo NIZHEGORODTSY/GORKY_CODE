@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.llm.gigachat_client import GigaChatClient
 from app.speech.edge import EdgeTTS
 from app.speech.gigachat_stt import GigaChatSTT
+from app.webapp.server import create_app, start_webapp
 from app.storage.db import make_engine, make_session_factory
 
 
@@ -39,10 +40,16 @@ async def main() -> None:
     dp = Dispatcher(assistant=assistant, stt=stt, tts=tts, webapp_url=settings.webapp_url)
     dp.include_router(router)
     notifier = asyncio.create_task(run_notifier(bot, session_factory))
+    webapp = await start_webapp(
+        create_app(settings.bot_token, assistant, session_factory, settings.default_timezone),
+        settings.webapp_host,
+        settings.webapp_port,
+    )
     try:
         await dp.start_polling(bot)
     finally:
         notifier.cancel()
+        await webapp.cleanup()
         await bot.session.close()
         await llm.close()
         await stt.close()
