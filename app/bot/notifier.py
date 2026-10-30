@@ -3,10 +3,12 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from html import escape
 
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.bot.keyboards import reminder_actions
 from app.core.models import Event, EventKind
 from app.storage.repository import EventRepository
 
@@ -20,8 +22,9 @@ MAX_AGE = timedelta(hours=6)
 def notification_text(e: Event, now: datetime) -> str:
     if e.kind == EventKind.MEETING:
         minutes = max(0, round((e.starts_at - now).total_seconds() / 60))
-        return f"⏰ Через {minutes} мин встреча: {e.title}" if minutes else f"⏰ Начинается встреча: {e.title}"
-    return f"⏰ Напоминаю: {e.title}"
+        head = f"Через {minutes} мин встреча" if minutes else "Начинается встреча"
+        return f"👥 <b>{head}</b>\n{escape(e.title)}"
+    return f"⏰ <b>Напоминаю</b>\n{escape(e.title)}"
 
 
 async def run_notifier(bot: Bot, session_factory: async_sessionmaker) -> None:
@@ -41,7 +44,8 @@ async def _tick(bot: Bot, session_factory: async_sessionmaker) -> None:
         repo = EventRepository(session)
         for event in await repo.due_notifications(now, MEETING_LEAD, MAX_AGE):
             try:
-                await bot.send_message(event.user_id, notification_text(event, now))
+                markup = reminder_actions(event.id) if event.kind == EventKind.REMINDER else None
+                await bot.send_message(event.user_id, notification_text(event, now), reply_markup=markup)
             except Exception:
                 # Пользователь заблокировал бота и т.п. — помечаем, чтобы не повторять бесконечно
                 log.warning("failed to notify user %s about event %s", event.user_id, event.id)

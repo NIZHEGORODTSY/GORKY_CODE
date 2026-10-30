@@ -1,6 +1,11 @@
-"""Человекочитаемые ответы. Без markdown: текст может быть озвучен."""
+"""Ответы пользователю в Telegram-HTML. Пользовательский текст всегда экранируем.
 
+Для истории диалога и озвучки HTML снимается функцией plain().
+"""
+
+import re
 from datetime import date
+from html import escape
 from itertools import groupby
 from zoneinfo import ZoneInfo
 
@@ -12,6 +17,22 @@ MONTHS_GEN = [
     "июля", "августа", "сентября", "октября", "ноября", "декабря",
 ]
 KIND_LABEL = {EventKind.TASK: "задача", EventKind.REMINDER: "напоминание", EventKind.MEETING: "встреча"}
+KIND_ICON = {EventKind.TASK: "📝", EventKind.REMINDER: "⏰", EventKind.MEETING: "👥"}
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def plain(html_text: str) -> str:
+    """HTML -> обычный текст (для истории LLM и озвучки)."""
+    return (
+        _TAG_RE.sub("", html_text)
+        .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&#x27;", "'").replace("&amp;", "&")
+    )
+
+
+def q(title: str) -> str:
+    """Название записи в кавычках, экранированное."""
+    return f"«{escape(title)}»"
 
 
 def fmt_day(d: date, today: date) -> str:
@@ -37,39 +58,44 @@ def fmt_when(e: Event, tz: ZoneInfo, today: date) -> str:
 
 
 def fmt_created(e: Event, tz: ZoneInfo, today: date) -> str:
-    label = KIND_LABEL[e.kind].capitalize()
+    icon = KIND_ICON[e.kind]
+    title = escape(e.title)
     when = fmt_when(e, tz, today)
     if e.kind == EventKind.REMINDER:
-        return f"Готово, напомню {when}: {e.title}."
+        return f"{icon} <b>Напомню {when}</b>\n{title}"
+    if e.kind == EventKind.MEETING:
+        return f"{icon} <b>Встреча добавлена</b>\n{title}\n🕒 {when}"
     if e.starts_at is None:
-        return f"{label} добавлена: {e.title}."
-    return f"Готово. {label} «{e.title}» — {when}."
+        return f"{icon} <b>Задача добавлена</b>\n{title}"
+    return f"{icon} <b>Задача добавлена</b>\n{title}\n📅 {when}"
 
 
 def _line(e: Event, tz: ZoneInfo) -> str:
     time_part = "весь день" if e.all_day or e.starts_at is None else f"{e.starts_at.astimezone(tz):%H:%M}"
-    done = " (выполнено)" if e.status == EventStatus.DONE else ""
-    return f"• {time_part} — {e.title} ({KIND_LABEL[e.kind]}){done}"
+    title = escape(e.title)
+    if e.status == EventStatus.DONE:
+        title = f"<s>{title}</s>"
+    return f"{KIND_ICON[e.kind]} {time_part} — {title}"
 
 
 def fmt_list(events: list[Event], tz: ZoneInfo, today: date, empty: str) -> str:
     if not events:
-        return empty
+        return f"🌿 {empty}"
     parts = []
     by_day = groupby(events, key=lambda e: e.starts_at.astimezone(tz).date())
     for day, items in by_day:
-        parts.append(fmt_day(day, today).capitalize() + ":")
+        if parts:
+            parts.append("")
+        parts.append(f"<b>{fmt_day(day, today).capitalize()}</b>")
         parts.extend(_line(e, tz) for e in items)
     return "\n".join(parts)
 
 
 def fmt_found(events: list[Event], tz: ZoneInfo, today: date) -> str:
-    lines = ["Нашёл:"] if len(events) > 1 else []
-    for e in events:
-        label = KIND_LABEL[e.kind]
-        done = ", выполнено" if e.status == EventStatus.DONE else ""
-        when = fmt_when(e, tz, today)
-        if len(events) == 1:
-            return f"Нашёл {label}: «{e.title}» — {when}{done}."
-        lines.append(f"• {e.title} ({label}) — {when}{done}")
-    return "\n".join(lines)
+    def row(e: Event) -> str:
+        done = " ✔️" if e.status == EventStatus.DONE else ""
+        return f"{KIND_ICON[e.kind]} {escape(e.title)} — {fmt_when(e, tz, today)}{done}"
+
+    if len(events) == 1:
+        return f"🔎 <b>Нашёл {KIND_LABEL[events[0].kind]}</b>\n{row(events[0])}"
+    return "🔎 <b>Нашёл:</b>\n" + "\n".join(row(e) for e in events)

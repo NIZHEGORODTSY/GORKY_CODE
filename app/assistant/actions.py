@@ -1,12 +1,13 @@
 """Выполнение функций, выбранных LLM: валидация аргументов, работа с хранилищем, ответ."""
 
 import re
+from html import escape
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from app.core.dates import Period, day_start, parse_date, parse_time, period_bounds, resolve_day
-from app.core.formatting import KIND_LABEL, fmt_created, fmt_day, fmt_found, fmt_list, fmt_when
+from app.core.formatting import KIND_LABEL, fmt_created, fmt_day, fmt_found, fmt_list, fmt_when, q
 from app.core.models import Event, EventKind, EventStatus
 from app.llm.base import ToolCall
 
@@ -88,11 +89,11 @@ class Actions:
         d, t = self._resolve_when(args)
 
         if kind == EventKind.MEETING and d is None:
-            raise Clarification(f"На какой день поставить встречу «{title}»?")
+            raise Clarification(f"📅 На какой день поставить встречу {q(title)}?")
         if kind == EventKind.MEETING and t is None:
-            raise Clarification(f"На какое время поставить встречу «{title}» ({fmt_day(d, self._today)})?")
+            raise Clarification(f"🕒 На какое время поставить встречу {q(title)} ({fmt_day(d, self._today)})?")
         if kind == EventKind.REMINDER and t is None:
-            raise Clarification(f"Во сколько напомнить: {title}?")
+            raise Clarification(f"🕒 Во сколько напомнить: {escape(title)}?")
 
         starts_at, all_day = self._schedule(d, t)
         ends_at = None
@@ -144,17 +145,17 @@ class Actions:
             raise Clarification("Что поискать?")
         events = await self._find(query, KIND_FILTER.get(args.get("kind")))
         if not events:
-            return ActionResult(f"Не нашёл записей про «{query}».")
+            return ActionResult(f"🤷 Не нашёл записей про {q(query)}.")
         return ActionResult(fmt_found(events, self._tz, self._today), events)
 
     # --- изменение --------------------------------------------------------
 
     async def _update(self, args: dict[str, Any]) -> ActionResult:
         event = await self._target(args, "перенести")
-        title_label = f"«{event.title}»"
+        title_label = q(event.title)
         d, t = self._resolve_when(args)
         if d is None and t is None:
-            raise Clarification(f"На когда перенести {title_label}?", [event])
+            raise Clarification(f"🕒 На когда перенести {title_label}?", [event])
 
         old_local = event.starts_at.astimezone(self._tz) if event.starts_at else None
         if d is None:
@@ -171,17 +172,17 @@ class Actions:
         conflicts = await self._conflicts(event.kind, starts_at, ends_at, exclude_id=event.id)
         await self._repo.reschedule(self._user_id, event.id, starts_at, ends_at, all_day)
         moved = replace(event, starts_at=starts_at, ends_at=ends_at, all_day=all_day)
-        return ActionResult(f"Перенёс {title_label} на {fmt_when(moved, self._tz, self._today)}." + conflicts, [moved])
+        return ActionResult(f"↪️ <b>Перенёс</b> {title_label} на {fmt_when(moved, self._tz, self._today)}." + conflicts, [moved])
 
     async def _complete(self, args: dict[str, Any]) -> ActionResult:
         event = await self._target(args, "отметить выполненной")
         await self._repo.set_status(self._user_id, event.id, EventStatus.DONE)
-        return ActionResult(f"Отметил выполненной: «{event.title}».", [event])
+        return ActionResult(f"✅ <b>Выполнено:</b> {q(event.title)}", [event])
 
     async def _delete(self, args: dict[str, Any]) -> ActionResult:
         event = await self._target(args, "удалить")
         await self._repo.set_status(self._user_id, event.id, EventStatus.CANCELLED)
-        return ActionResult(f"Удалил {KIND_LABEL[event.kind]} «{event.title}».", [event])
+        return ActionResult(f"🗑 <b>Удалил</b> {KIND_LABEL[event.kind]} {q(event.title)}.", [event])
 
     # --- вспомогательное --------------------------------------------------
 
@@ -204,10 +205,10 @@ class Actions:
             return in_context[0]
         found = [e for e in await self._find(query, None) if e.status == EventStatus.OPEN]
         if not found:
-            raise Clarification(f"Не нашёл открытых записей про «{query}».")
+            raise Clarification(f"🤷 Не нашёл открытых записей про {q(query)}.")
         if len(found) > 1:
-            options = "\n".join(f"• {e.title} — {fmt_when(e, self._tz, self._today)}" for e in found)
-            raise Clarification(f"Нашёл несколько, какую {verb}?\n{options}", found)
+            options = "\n".join(f"• {escape(e.title)} — {fmt_when(e, self._tz, self._today)}" for e in found)
+            raise Clarification(f"🤔 Нашёл несколько, какую {verb}?\n{options}", found)
         return found[0]
 
     async def _find(self, query: str, kinds) -> list[Event]:
@@ -223,8 +224,8 @@ class Actions:
         overlap = await self._repo.overlapping_meetings(self._user_id, starts_at, ends_at, exclude_id)
         if not overlap:
             return ""
-        names = ", ".join(f"«{e.title}» в {e.starts_at.astimezone(self._tz):%H:%M}" for e in overlap)
-        return f"\nВнимание: пересекается с {names}."
+        names = ", ".join(f"{q(e.title)} в {e.starts_at.astimezone(self._tz):%H:%M}" for e in overlap)
+        return f"\n\n⚠️ <b>Пересекается</b> с {names}."
 
     def _resolve_when(self, args: dict[str, Any]) -> tuple[date | None, time | None]:
         minutes = args.get("in_minutes")
@@ -246,7 +247,7 @@ class Actions:
             return (day_start(d, self._tz) if d else None), d is not None
         starts_at = datetime.combine(d, t, tzinfo=self._tz)
         if starts_at < self._now - timedelta(minutes=1):
-            raise Clarification(f"{fmt_day(d, self._today).capitalize()} в {t:%H:%M} уже прошло. На когда поставить?")
+            raise Clarification(f"⌛ {fmt_day(d, self._today).capitalize()} в {t:%H:%M} уже прошло. На когда поставить?")
         return starts_at, False
 
 
