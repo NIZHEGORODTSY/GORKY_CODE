@@ -25,7 +25,7 @@ async def test_create_meeting():
     assert e.kind == EventKind.MEETING
     assert e.starts_at == datetime(2026, 10, 31, 15, tzinfo=MSK)
     assert e.ends_at == datetime(2026, 10, 31, 16, tzinfo=MSK)
-    assert "завтра" in res.text and "15:00" in res.text
+    assert "Завтра, 31 октября · 15:00–16:00" in plain(res.text)
 
 
 async def test_meeting_without_time_asks():
@@ -68,7 +68,7 @@ async def test_list_today_filters_by_kind():
     repo.events.append(meeting(USER, "Созвон", datetime(2026, 10, 30, 16, tzinfo=MSK)))
     await repo.add(repo.events.pop())
     res = await actions.run(ToolCall("list_events", {"period": "today", "kind": "meeting"}))
-    assert "16:00 — Созвон" in res.text
+    assert "16:00  👥 Созвон" in plain(res.text)
     res = await actions.run(ToolCall("list_events", {"period": "today", "kind": "task"}))
     assert plain(res.text) == "🌿 На сегодня задач нет."
 

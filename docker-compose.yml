@@ -9,7 +9,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     # Только localhost VPS (порт 5433, чтобы не конфликтовать с Postgres, установленным на сервере);
-    # с компьютера — через SSH-туннель, см. db.md
+    # с компьютера — через SSH-туннель, см. README.md
     ports:
       - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
     healthcheck:

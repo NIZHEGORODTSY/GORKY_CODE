@@ -3,7 +3,7 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-[ -f .env ] || { echo "Нет .env: скопируй сюда .env.prod (см. docs/DEPLOY.md)"; exit 1; }
+[ -f .env ] || { echo "Нет .env: скопируй сюда .env.prod (см. README.md, раздел «Деплой»)"; exit 1; }
 
 git pull --ff-only
 

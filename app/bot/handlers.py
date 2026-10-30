@@ -7,13 +7,14 @@
 
 import logging
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from html import escape
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, FSInputFile, Message
 from aiogram.utils.chat_action import ChatActionSender
 
 from app.assistant.actions import ActionResult
@@ -60,6 +61,29 @@ HELP = (
     "Напоминания пришлю сам, о встречах предупрежу за 15 минут."
 )
 
+WELCOME_IMAGE = Path(__file__).resolve().parents[2] / "assets" / "welcome.jpg"
+_welcome_photo_id: str | None = None  # после первой отправки Telegram отдаёт file_id — дальше без загрузки файла
+
+WELCOME = (
+    "👋 <b>{hello}</b>\n\n"
+    "Я Горький — помогаю держать в голове всё важное, чтобы ты не держал. "
+    "Просто скажи или напиши, как другу, а я сам пойму, что это: задача, встреча или напоминание. "
+    "И обязательно напомню вовремя.\n\n"
+    "<b>Например:</b>\n"
+    "🎙 «Напомни завтра в 10 позвонить маме»\n"
+    "👥 «В четверг в 15:00 созвон с командой»\n"
+    "📅 «Что у меня на неделе?»\n\n"
+    "Попробуй прямо сейчас — голосом быстрее всего 😉\n\n"
+    "<i>Проверяешь тестовое задание? В меню «📥 Демо-данные» — 1000 записей для поиска.</i>"
+)
+
+
+def _remember_welcome_photo(message: Message) -> None:
+    global _welcome_photo_id
+    if message.photo:
+        _welcome_photo_id = message.photo[-1].file_id
+
+
 COMMAND_VIEWS = {"menu": "home", "today": "d", "tomorrow": "d+1", "week": "w", "tasks": "t",
                  "calendar": "export", "settings": "settings", "help": "help", "demo": "demo"}
 
@@ -76,12 +100,15 @@ DEMO_TRY = (
 
 @router.message(CommandStart())
 async def on_start(message: Message, bot: Bot, assistant: Assistant, webapp_url: str, public_base: str) -> None:
-    await message.answer(
-        "👋 Привет! Я голосовой планировщик. Напиши или скажи, что запланировать, — "
-        "а все разделы в меню ниже.\n\n"
-        "Проверяешь тестовое задание? В меню «📥 Демо-данные из задания» — загрузка 1000 записей из CSV.",
-        reply_markup=reply_menu(webapp_url),
-    )
+    name = escape(message.from_user.first_name or "")
+    caption = WELCOME.format(hello=f"Привет, {name}!" if name else "Привет!")
+    photo = _welcome_photo_id or FSInputFile(WELCOME_IMAGE)
+    try:
+        sent = await message.answer_photo(photo, caption=caption, reply_markup=reply_menu(webapp_url))
+        _remember_welcome_photo(sent)
+    except TelegramBadRequest:
+        # Картинка недоступна — приветствие всё равно должно дойти
+        await message.answer(caption, reply_markup=reply_menu(webapp_url))
     await _show_panel(bot, message.chat.id, *await _render(assistant, message.from_user.id, "home", None, public_base))
 
 
