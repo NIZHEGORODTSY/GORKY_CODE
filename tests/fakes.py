@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 from app.core.models import Event, EventKind, EventStatus
+from app.storage.repository import expand_recurring
 
 
 class FakeEventRepository:
@@ -20,11 +21,11 @@ class FakeEventRepository:
             e for e in self.events
             if e.user_id == user_id
             and e.starts_at is not None
-            and start <= e.starts_at < end
+            and (start <= e.starts_at < end or (e.recurrence and e.starts_at < end))
             and (not kinds or e.kind in kinds)
             and (include_closed or e.status == EventStatus.OPEN)
         ]
-        return sorted(found, key=lambda e: e.starts_at)
+        return expand_recurring(found, start, end)
 
     async def get(self, user_id, event_id):
         return next((e for e in self.events if e.user_id == user_id and e.id == event_id), None)
@@ -35,6 +36,9 @@ class FakeEventRepository:
     async def set_status(self, user_id, event_id, status):
         self._replace(event_id, status=status)
         return True
+
+    async def update(self, user_id, event_id, **values):
+        self._replace(event_id, **values)
 
     async def reschedule(self, user_id, event_id, starts_at, ends_at, all_day):
         self._replace(event_id, starts_at=starts_at, ends_at=ends_at, all_day=all_day, notified_at=None)
@@ -64,3 +68,11 @@ def meeting(user_id: int, title: str, starts_at: datetime) -> Event:
         user_id=user_id, kind=EventKind.MEETING, title=title,
         starts_at=starts_at, ends_at=starts_at + timedelta(hours=1),
     )
+
+
+class FakeUserRepository:
+    def __init__(self):
+        self.values = {}
+
+    async def update(self, user_id, **values):
+        self.values.update(values)

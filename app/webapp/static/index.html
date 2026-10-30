@@ -150,7 +150,7 @@ function row(e) {
   const body = el("div", "body");
   body.append(el("div", "title", e.title));
   const time = e.time ? (e.end_time ? `${e.time}–${e.end_time}` : e.time) : (e.date ? "весь день" : "");
-  body.append(el("div", "meta", [time, KIND[e.kind]].filter(Boolean).join(" · ")));
+  body.append(el("div", "meta", [time, KIND[e.kind], e.repeat && "🔁 " + e.repeat].filter(Boolean).join(" · ")));
   item.append(body);
   if (e.status === "open") {
     const done = el("button", "act", "✓"); done.title = "Выполнено";

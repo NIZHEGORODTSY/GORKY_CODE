@@ -19,13 +19,18 @@ DESCRIPTION = (
 
 COMMANDS = [
     BotCommand(command="today", description="📅 Что у меня сегодня"),
+    BotCommand(command="tomorrow", description="➡️ Планы на завтра"),
     BotCommand(command="week", description="🗓 План на неделю"),
+    BotCommand(command="tasks", description="📝 Все открытые задачи"),
+    BotCommand(command="calendar", description="📆 Добавить планы в календарь телефона"),
+    BotCommand(command="settings", description="⚙️ Часовой пояс, сводка, голос"),
     BotCommand(command="help", description="❓ Что я умею"),
 ]
 
 
 async def setup_menu_button(bot: Bot, webapp_url: str) -> None:
-    """Кнопка слева от поля ввода: календарь, если Mini App доступен по HTTPS, иначе меню команд."""
+    """Меню команд и кнопка слева от поля ввода: календарь, если Mini App доступен по HTTPS."""
+    await bot.set_my_commands(COMMANDS)
     if webapp_url:
         button = MenuButtonWebApp(text="Календарь", web_app=WebAppInfo(url=webapp_url))
     else:

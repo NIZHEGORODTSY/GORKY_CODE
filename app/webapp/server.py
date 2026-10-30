@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.assistant.service import Assistant
 from app.core.formatting import plain
 from app.core.models import Event
+from app.core.recurrence import describe
 from app.llm.base import ToolCall
 from app.storage.repository import EventRepository, UserRepository
 
@@ -37,6 +38,7 @@ def create_app(bot_token: str, assistant: Assistant, session_factory: async_sess
     app.router.add_get("/health", _health)
     app.router.add_get("/api/events", _list_events)
     app.router.add_post("/api/events/{event_id:\\d+}/{action}", _event_action)
+    app.router.add_get("/ics/{token}.ics", _ics_feed)
     return app
 
 
@@ -110,6 +112,22 @@ async def _event_action(request: web.Request) -> web.Response:
     return web.json_response({"message": plain(result.text)})
 
 
+async def _ics_feed(request: web.Request) -> web.Response:
+    """Подписка на календарь: токен в ссылке секретный, знает только владелец."""
+    ctx = request.app[CTX]
+    async with ctx["sessions"]() as session, session.begin():
+        user = await UserRepository(session).by_ics_token(request.match_info["token"])
+    if user is None:
+        raise web.HTTPNotFound()
+    ics, _ = await ctx["assistant"].export_ics(user.id)
+    return web.Response(
+        text=ics,
+        content_type="text/calendar",
+        charset="utf-8",
+        headers={"Content-Disposition": 'inline; filename="gorky.ics"', "Cache-Control": "no-cache"},
+    )
+
+
 def _to_json(e: Event, tz: ZoneInfo) -> dict:
     local = e.starts_at.astimezone(tz) if e.starts_at else None
     return {
@@ -120,6 +138,7 @@ def _to_json(e: Event, tz: ZoneInfo) -> dict:
         "time": None if local is None or e.all_day else f"{local:%H:%M}",
         "end_time": f"{e.ends_at.astimezone(tz):%H:%M}" if e.ends_at else None,
         "status": e.status.value,
+        "repeat": describe(e.recurrence) if e.recurrence else None,
     }
 
 

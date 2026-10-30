@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.dates import WEEKDAYS
 from app.core.models import Event, EventKind, EventStatus
+from app.core.recurrence import describe
 
 MONTHS_GEN = [
     "января", "февраля", "марта", "апреля", "мая", "июня",
@@ -58,6 +59,13 @@ def fmt_when(e: Event, tz: ZoneInfo, today: date) -> str:
 
 
 def fmt_created(e: Event, tz: ZoneInfo, today: date) -> str:
+    text = _created(e, tz, today)
+    if e.recurrence:
+        text += f"\n🔁 {describe(e.recurrence)}"
+    return text
+
+
+def _created(e: Event, tz: ZoneInfo, today: date) -> str:
     icon = KIND_ICON[e.kind]
     title = escape(e.title)
     when = fmt_when(e, tz, today)
@@ -75,7 +83,8 @@ def _line(e: Event, tz: ZoneInfo) -> str:
     title = escape(e.title)
     if e.status == EventStatus.DONE:
         title = f"<s>{title}</s>"
-    return f"{KIND_ICON[e.kind]} {time_part} — {title}"
+    repeat = " 🔁" if e.recurrence else ""
+    return f"{KIND_ICON[e.kind]} {time_part} — {title}{repeat}"
 
 
 def fmt_list(events: list[Event], tz: ZoneInfo, today: date, empty: str) -> str:
@@ -94,7 +103,8 @@ def fmt_list(events: list[Event], tz: ZoneInfo, today: date, empty: str) -> str:
 def fmt_found(events: list[Event], tz: ZoneInfo, today: date) -> str:
     def row(e: Event) -> str:
         done = " ✔️" if e.status == EventStatus.DONE else ""
-        return f"{KIND_ICON[e.kind]} {escape(e.title)} — {fmt_when(e, tz, today)}{done}"
+        repeat = f" · 🔁 {describe(e.recurrence)}" if e.recurrence else ""
+        return f"{KIND_ICON[e.kind]} {escape(e.title)} — {fmt_when(e, tz, today)}{repeat}{done}"
 
     if len(events) == 1:
         return f"🔎 <b>Нашёл {KIND_LABEL[events[0].kind]}</b>\n{row(events[0])}"

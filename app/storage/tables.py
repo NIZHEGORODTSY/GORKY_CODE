@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime, time
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, String, Text, Time, func, true
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.core.models import EventKind, EventStatus
@@ -16,6 +16,10 @@ class UserRow(Base):
     # Telegram user id
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     timezone: Mapped[str] = mapped_column(String(64))
+    voice_replies: Mapped[bool] = mapped_column(Boolean, server_default=true())
+    digest_time: Mapped[time | None] = mapped_column(Time)
+    last_digest_on: Mapped[date | None] = mapped_column(Date)
+    ics_token: Mapped[str | None] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -35,6 +39,7 @@ class EventRow(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    recurrence: Mapped[str | None] = mapped_column(String(32))
 
     __table_args__ = (Index("ix_events_user_starts_at", "user_id", "starts_at"),)
 
@@ -52,4 +57,5 @@ class EventRow(Base):
             status=EventStatus(self.status),
             created_at=self.created_at,
             notified_at=self.notified_at,
+            recurrence=self.recurrence,
         )

@@ -72,14 +72,16 @@ docs/
 | `status` | `open` \| `done` \| `cancelled` | |
 | `created_at` | datetime | |
 | `notified_at` | datetime \| null | когда бот отправил напоминание |
+| `recurrence` | str \| null | повтор: `daily`, `weekdays`, `weekly:0,2`, `monthly` (`app/core/recurrence.py`); `starts_at` — ближайшее повторение |
 
 Все даты хранятся с таймзоной (UTC в БД). Таймзона пользователя — в таблице `users` (по умолчанию
 `Europe/Moscow`). Текущие дата/время и таймзона всегда передаются в LLM явно вместе с таблицей
 ближайших 14 дней с днями недели — модель не должна угадывать «сегодня».
 
 Функции LLM (минимум): `create_event`, `list_events(from, to, kind?)`, `search_events(query,
-from?, to?)`, `ask_clarification(question)`. Дополнительно: `update_event`, `delete_event`,
-`complete_event`.
+from?, to?)`, `ask_clarification(question)`. Дополнительно: `update_event` (перенос, переименование, длительность),
+`delete_event`, `complete_event`, `update_settings` (часовой пояс, утренняя сводка, голосовые ответы).
+Без LLM (кнопки): `restore_event` — «Вернуть». Экспорт: `.ics` (`app/core/ics.py`), подписка `/ics/<token>.ics`.
 
 ## Протокол координации между участниками и их Claude
 

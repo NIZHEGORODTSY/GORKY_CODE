@@ -3,15 +3,17 @@ import logging
 from html import escape
 from collections import defaultdict, deque
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.assistant.actions import ActionResult, Actions
 from app.assistant.prompt import build_system_prompt
-from app.core.formatting import plain
-from app.core.models import Event
+from app.core.dates import day_start
+from app.core.formatting import KIND_ICON, fmt_list, fmt_when, plain
+from app.core.ics import build_calendar
+from app.core.models import Event, EventKind, UserSettings
 from app.llm.base import ChatMessage, LLMClient, ToolCall
 from app.llm.tools import TOOLS
 from app.search.llm_matcher import LLMEventMatcher
@@ -21,6 +23,9 @@ log = logging.getLogger(__name__)
 
 HISTORY_SIZE = 10  # сообщений (пар вопрос/ответ — вдвое меньше)
 RECENT_SIZE = 10
+EXPORT_PAST = timedelta(days=30)
+TASKS_AHEAD = timedelta(days=30)
+TASK_KINDS = {EventKind.TASK, EventKind.REMINDER}
 LLM_ERROR = "Не получилось обработать запрос — попробуй ещё раз чуть позже."
 
 
@@ -97,7 +102,10 @@ class Assistant:
         if reply.tool_call:
             log.info("tool call %s %s", reply.tool_call.name, reply.tool_call.arguments)
             async with self._session_factory() as session, session.begin():
-                actions = Actions(EventRepository(session), user_id, now, self._matcher, self._recent.get(user_id))
+                actions = Actions(
+                    EventRepository(session), user_id, now, self._matcher,
+                    self._recent.get(user_id), users=UserRepository(session),
+                )
                 result = await run_tool_call(self._llm, messages, reply.tool_call, actions)
             self._remember(user_id, result)
         else:
@@ -110,10 +118,56 @@ class Assistant:
         """Действие без LLM — для команд меню и кнопок под сообщениями."""
         now, _ = await self._now(user_id)
         async with self._session_factory() as session, session.begin():
-            result = await Actions(EventRepository(session), user_id, now, recent=self._recent.get(user_id)).run(call)
+            actions = Actions(
+                EventRepository(session), user_id, now, recent=self._recent.get(user_id), users=UserRepository(session)
+            )
+            result = await actions.run(call)
         self._remember(user_id, result)
         return result
 
     def _remember(self, user_id: int, result: ActionResult) -> None:
         if result.events:
             self._recent[user_id] = result.events[:RECENT_SIZE]
+
+    # --- без LLM: настройки, экспорт, обзор задач ----------------------------
+
+    async def settings(self, user_id: int) -> UserSettings:
+        async with self._session_factory() as session, session.begin():
+            users = UserRepository(session)
+            await users.ensure(user_id, self._default_timezone)
+            return await users.get(user_id)
+
+    async def export_ics(self, user_id: int, event_id: int | None = None) -> tuple[str, str]:
+        """(.ics, токен подписки). event_id — одна запись, иначе все планы."""
+        now, _ = await self._now(user_id)
+        async with self._session_factory() as session, session.begin():
+            token = await UserRepository(session).ics_token(user_id)
+            repo = EventRepository(session)
+            if event_id is not None:
+                event = await repo.get(user_id, event_id)
+                events = [event] if event else []
+            else:
+                events = await repo.list_all(user_id, now - EXPORT_PAST)
+        return build_calendar(events), token
+
+    async def tasks_overview(self, user_id: int) -> ActionResult:
+        """Все открытые задачи и напоминания: просроченные, ближайшие, без срока."""
+        now, _ = await self._now(user_id)
+        tz, today = now.tzinfo, now.date()
+        start = day_start(today, tz)
+        async with self._session_factory() as session, session.begin():
+            repo = EventRepository(session)
+            overdue = await repo.list_overdue(user_id, start)
+            upcoming = await repo.list_between(user_id, start, start + TASKS_AHEAD, kinds=TASK_KINDS)
+            undated = await repo.list_undated(user_id)
+        parts = []
+        if overdue:
+            parts += ["⚠️ <b>Просрочено</b>", *(f"{KIND_ICON[e.kind]} {escape(e.title)} — {fmt_when(e, tz, today)}" for e in overdue), ""]
+        if upcoming:
+            parts += [fmt_list(upcoming, tz, today, ""), ""]
+        if undated:
+            parts += ["<b>Без срока</b>", *(f"{KIND_ICON[e.kind]} {escape(e.title)}" for e in undated)]
+        text = "\n".join(parts).strip() or "🌿 Открытых задач нет — можно отдыхать."
+        result = ActionResult("📝 <b>Мои задачи</b>\n\n" + text if parts else text, overdue + upcoming + undated)
+        self._remember(user_id, result)
+        return result

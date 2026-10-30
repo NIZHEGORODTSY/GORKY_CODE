@@ -38,7 +38,13 @@ async def main() -> None:
     tts = EdgeTTS(settings.tts_voice)
 
     bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = Dispatcher(assistant=assistant, stt=stt, tts=tts, webapp_url=settings.public_webapp_url)
+    dp = Dispatcher(
+        assistant=assistant,
+        stt=stt,
+        tts=tts,
+        webapp_url=settings.public_webapp_url,
+        public_base=settings.public_webapp_url.removesuffix("/app/"),
+    )
     dp.include_router(router)
     await setup_menu_button(bot, settings.public_webapp_url)
     notifier = asyncio.create_task(run_notifier(bot, session_factory))

@@ -1,11 +1,14 @@
 import re
-from datetime import datetime, timedelta
+import secrets
+from dataclasses import replace
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.models import Event, EventKind, EventStatus
+from app.core.models import Event, EventKind, EventStatus, UserSettings
+from app.core.recurrence import occurrences
 from app.storage.tables import EventRow, UserRow
 
 
@@ -22,6 +25,39 @@ class UserRepository:
         )
         return await self._s.scalar(select(UserRow.timezone).where(UserRow.id == user_id))
 
+    async def get(self, user_id: int) -> UserSettings | None:
+        row = await self._s.get(UserRow, user_id)
+        return _settings(row) if row else None
+
+    async def update(self, user_id: int, **values) -> None:
+        await self._s.execute(update(UserRow).where(UserRow.id == user_id).values(**values))
+
+    async def ics_token(self, user_id: int) -> str:
+        """Секретный токен ссылки на календарь; создаётся при первом запросе."""
+        row = await self._s.get(UserRow, user_id)
+        if row.ics_token is None:
+            row.ics_token = secrets.token_urlsafe(24)
+        return row.ics_token
+
+    async def by_ics_token(self, token: str) -> UserSettings | None:
+        row = await self._s.scalar(select(UserRow).where(UserRow.ics_token == token))
+        return _settings(row) if row else None
+
+    async def digest_candidates(self) -> list[tuple[UserSettings, date | None]]:
+        """Пользователи с включённой сводкой и дата последней отправки."""
+        rows = await self._s.scalars(select(UserRow).where(UserRow.digest_time.is_not(None)))
+        return [(_settings(r), r.last_digest_on) for r in rows]
+
+
+def _settings(row: UserRow) -> UserSettings:
+    return UserSettings(
+        id=row.id,
+        timezone=row.timezone,
+        voice_replies=row.voice_replies,
+        digest_time=row.digest_time,
+        ics_token=row.ics_token,
+    )
+
 
 class EventRepository:
     def __init__(self, session: AsyncSession):
@@ -36,6 +72,7 @@ class EventRepository:
             ends_at=event.ends_at,
             all_day=event.all_day,
             status=event.status.value,
+            recurrence=event.recurrence,
         )
         self._s.add(row)
         await self._s.flush()
@@ -56,18 +93,19 @@ class EventRepository:
         kinds: set[EventKind] | None = None,
         include_closed: bool = False,
     ) -> list[Event]:
-        """События с starts_at в полуинтервале [start, end), по возрастанию времени."""
-        q = select(EventRow).where(
-            EventRow.user_id == user_id,
-            EventRow.starts_at >= start,
-            EventRow.starts_at < end,
-        )
+        """События с starts_at в полуинтервале [start, end), по возрастанию времени.
+
+        Повторяющиеся записи разворачиваются в отдельные вхождения (тот же id, своё время).
+        """
+        in_range = and_(EventRow.starts_at >= start, EventRow.starts_at < end)
+        recurring = and_(EventRow.recurrence.is_not(None), EventRow.starts_at < end)
+        q = select(EventRow).where(EventRow.user_id == user_id, or_(in_range, recurring))
         if kinds:
             q = q.where(EventRow.kind.in_([k.value for k in kinds]))
         if not include_closed:
             q = q.where(EventRow.status == EventStatus.OPEN.value)
         rows = await self._s.scalars(q.order_by(EventRow.starts_at))
-        return [r.to_domain() for r in rows]
+        return expand_recurring([r.to_domain() for r in rows], start, end)
 
     async def list_undated(self, user_id: int) -> list[Event]:
         """Открытые задачи без срока."""
@@ -169,3 +207,63 @@ class EventRepository:
             q = q.where(EventRow.id != exclude_id)
         rows = await self._s.scalars(q.order_by(EventRow.starts_at))
         return [r.to_domain() for r in rows]
+
+    async def update(self, user_id: int, event_id: int, **values) -> None:
+        """Точечное изменение полей записи (название, время, правило повтора...)."""
+        await self._s.execute(
+            update(EventRow).where(EventRow.user_id == user_id, EventRow.id == event_id).values(**values)
+        )
+
+    async def list_all(self, user_id: int, since: datetime) -> list[Event]:
+        """Открытые и выполненные записи начиная с since (повторяющиеся — целиком) — для экспорта."""
+        rows = await self._s.scalars(
+            select(EventRow)
+            .where(
+                EventRow.user_id == user_id,
+                EventRow.status != EventStatus.CANCELLED.value,
+                EventRow.starts_at.is_not(None),
+                or_(EventRow.starts_at >= since, EventRow.recurrence.is_not(None)),
+            )
+            .order_by(EventRow.starts_at)
+        )
+        return [r.to_domain() for r in rows]
+
+
+    async def recurring_passed(self, now: datetime) -> list[Event]:
+        """Открытые повторяющиеся записи, текущее повторение которых уже наступило."""
+        rows = await self._s.scalars(
+            select(EventRow).where(
+                EventRow.recurrence.is_not(None),
+                EventRow.status == EventStatus.OPEN.value,
+                EventRow.starts_at <= now,
+            )
+        )
+        return [r.to_domain() for r in rows]
+
+    async def list_overdue(self, user_id: int, before: datetime) -> list[Event]:
+        """Открытые разовые задачи и напоминания со сроком раньше before."""
+        rows = await self._s.scalars(
+            select(EventRow)
+            .where(
+                EventRow.user_id == user_id,
+                EventRow.status == EventStatus.OPEN.value,
+                EventRow.recurrence.is_(None),
+                EventRow.kind != EventKind.MEETING.value,
+                EventRow.starts_at < before,
+            )
+            .order_by(EventRow.starts_at)
+        )
+        return [r.to_domain() for r in rows]
+
+def expand_recurring(events: list[Event], start: datetime, end: datetime) -> list[Event]:
+    """Повторяющиеся записи -> вхождения в [start, end) в поясе start; остальные как есть."""
+    result = []
+    for e in events:
+        if not e.recurrence or e.starts_at is None:
+            result.append(e)
+            continue
+        current = e.starts_at.astimezone(start.tzinfo)
+        duration = (e.ends_at - e.starts_at) if e.ends_at else None
+        for at in occurrences(current, e.recurrence, start, end):
+            result.append(replace(e, starts_at=at, ends_at=at + duration if duration else None))
+    return sorted(result, key=lambda e: e.starts_at)
