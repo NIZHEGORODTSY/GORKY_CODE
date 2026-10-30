@@ -76,7 +76,7 @@ def _when_line(e: Event, tz: ZoneInfo, today: date) -> str:
     return f"{day} · {span}"
 
 
-def _card(e: Event, tz: ZoneInfo, today: date) -> str:
+def fmt_card(e: Event, tz: ZoneInfo, today: date) -> str:
     """Карточка записи: значок и название, ниже — когда и повтор."""
     lines = [f"{KIND_ICON[e.kind]} <b>{escape(e.title)}</b>", f"🗓 {_when_line(e, tz, today)}"]
     if e.recurrence:
@@ -92,7 +92,7 @@ def fmt_created(e: Event, tz: ZoneInfo, today: date) -> str:
         EventKind.MEETING: "✅ <b>Встреча добавлена</b>",
         EventKind.TASK: "✅ <b>Задача добавлена</b>",
     }[e.kind]
-    return f"{heading}\n\n{_card(e, tz, today)}"
+    return f"{heading}\n\n{fmt_card(e, tz, today)}"
 
 
 def _line(e: Event, tz: ZoneInfo) -> str:
@@ -118,7 +118,7 @@ def fmt_list(events: list[Event], tz: ZoneInfo, today: date, empty: str) -> str:
 def fmt_found(events: list[Event], tz: ZoneInfo, today: date) -> str:
     n = len(events)
     heading = "🔎 <b>Нашёл</b>" if n == 1 else f"🔎 <b>Нашёл {n} {_plural(n, 'запись', 'записи', 'записей')}</b>"
-    return heading + "\n\n" + "\n\n".join(_card(e, tz, today) for e in events)
+    return heading + "\n\n" + "\n\n".join(fmt_card(e, tz, today) for e in events)
 
 
 def _plural(n: int, one: str, few: str, many: str) -> str:

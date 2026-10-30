@@ -5,7 +5,9 @@
 callback_data (≤ 64 байт):
     v:<home|t|export|settings|tz|help|demo> открыть раздел панели
     v:<d|w>:<YYYY-MM-DD>                   день / неделя (листание)
-    ls:<id>:<d|w|t>:<YYYY-MM-DD>           выполнить пункт списка и перерисовать раздел
+    it:<id>:<d|w|t>:<YYYY-MM-DD>           открыть карточку записи из списка
+    ls:<id>:<d|w|t>:<YYYY-MM-DD>           карточка: выполнено -> вернуться к списку
+    lx:<id>:<d|w|t>:<YYYY-MM-DD>           карточка: удалить -> вернуться к списку
     set:<voice|digest|tz>:<значение>       изменить настройку
     m:open                                 открыть панель внизу чата (из ответа бота)
     demo:<load|clear>                      загрузить / убрать демо-данные из задания
@@ -14,7 +16,7 @@ callback_data (≤ 64 байт):
     ev:undo:<id>[:<epoch>]                 вернуть удалённое / выполненное
 """
 
-from datetime import date, timedelta
+from datetime import date, timedelta, tzinfo
 
 from aiogram.types import (
     InlineKeyboardButton,
@@ -24,7 +26,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from app.core.formatting import MONTHS_GEN
+from app.core.formatting import KIND_ICON, MONTHS_GEN
 from app.core.models import Event, EventKind, EventStatus, UserSettings
 
 BTN_MENU = "🏠 Меню"
@@ -85,15 +87,16 @@ def back_only() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[BACK_TO_MENU])
 
 
-def list_actions(events: list[Event], view: str, anchor: date) -> InlineKeyboardMarkup:
-    """Раздел-список: «выполнено» на каждый открытый пункт, листание (d — день, w — неделя), «Меню»."""
+def list_actions(events: list[Event], view: str, anchor: date, tz: tzinfo | None = None) -> InlineKeyboardMarkup:
+    """Раздел-список: кнопка на каждый открытый пункт (открывает карточку), листание (d — день, w — неделя), «Меню»."""
     rows, seen = [], set()
     for e in events:
         if e.status != EventStatus.OPEN or e.id in seen or len(seen) >= MAX_LIST_BUTTONS:
             continue
         seen.add(e.id)
-        title = e.title if len(e.title) <= 28 else e.title[:27] + "…"
-        rows.append([btn(f"✅ {title}", f"ls:{e.id}:{view}:{anchor.isoformat()}")])
+        title = e.title if len(e.title) <= 26 else e.title[:25] + "…"
+        when = f"{e.starts_at.astimezone(tz):%H:%M} · " if e.starts_at and not e.all_day and tz else ""
+        rows.append([btn(f"{KIND_ICON[e.kind]} {when}{title}", f"it:{e.id}:{view}:{anchor.isoformat()}")])
     if view in ("d", "w"):
         step = timedelta(days=1 if view == "d" else 7)
         if view == "d":
@@ -102,6 +105,18 @@ def list_actions(events: list[Event], view: str, anchor: date) -> InlineKeyboard
             prev_label, next_label = "◀️ Пред. неделя", "След. неделя ▶️"
         rows.append([btn(prev_label, f"v:{view}:{anchor - step}"), btn(next_label, f"v:{view}:{anchor + step}")])
     rows.append(BACK_TO_MENU)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def item_actions(e: Event, view: str, anchor: date) -> InlineKeyboardMarkup:
+    """Карточка записи из списка: что с ней сделать и куда вернуться."""
+    back = f"v:{view}:{anchor.isoformat()}" if view in ("d", "w") else "v:t"
+    done_label = "✅ Прошла" if e.kind == EventKind.MEETING else "✅ Выполнено"
+    rows = []
+    if e.status == EventStatus.OPEN:
+        rows.append([btn(done_label, f"ls:{e.id}:{view}:{anchor.isoformat()}"),
+                     btn("🗑 Удалить", f"lx:{e.id}:{view}:{anchor.isoformat()}")])
+    rows.append([btn("⬅️ Назад к списку", back), btn("🏠 Меню", "v:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

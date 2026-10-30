@@ -175,6 +175,10 @@ class Assistant:
 
     # --- демо-данные из тестового задания ---------------------------------------
 
+    async def event(self, user_id: int, event_id: int) -> Event | None:
+        async with self._session_factory() as session, session.begin():
+            return await EventRepository(session).get(user_id, event_id)
+
     async def demo_count(self, user_id: int) -> int:
         async with self._session_factory() as session, session.begin():
             return await EventRepository(session).count_source(user_id, DEMO_SOURCE)

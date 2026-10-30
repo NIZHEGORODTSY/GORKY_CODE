@@ -20,3 +20,20 @@ async def test_no_hint_when_demo_loaded():
     text, markup = await _with_demo_hint(FakeAssistant(1000), 1, ActionResult("🤷 Не нашёл записей про «Иван»."))
     assert "ещё не загружены" not in text
     assert markup.inline_keyboard[-1][0].callback_data == "m:open"
+
+
+def test_list_buttons_open_card_and_card_has_actions():
+    from datetime import date, datetime
+    from zoneinfo import ZoneInfo
+
+    from app.bot.keyboards import item_actions, list_actions
+    from tests.fakes import meeting
+
+    msk = ZoneInfo("Europe/Moscow")
+    e = meeting(1, "Созвон с Орбитой", datetime(2026, 10, 31, 15, 30, tzinfo=msk))
+    e.id = 7
+    rows = list_actions([e], "d", date(2026, 10, 31), msk).inline_keyboard
+    assert rows[0][0].text == "🤝 15:30 · Созвон с Орбитой"
+    assert rows[0][0].callback_data == "it:7:d:2026-10-31"
+    card = [b.callback_data for row in item_actions(e, "d", date(2026, 10, 31)).inline_keyboard for b in row]
+    assert card == ["ls:7:d:2026-10-31", "lx:7:d:2026-10-31", "v:d:2026-10-31", "v:home"]

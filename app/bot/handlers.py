@@ -26,6 +26,7 @@ from app.bot.keyboards import (
     demo_actions,
     demo_load_only,
     event_actions,
+    item_actions,
     export_actions,
     home_actions,
     list_actions,
@@ -34,7 +35,7 @@ from app.bot.keyboards import (
     timezone_actions,
 )
 from app.core.dates import WEEKDAYS
-from app.core.formatting import MONTHS_GEN, plain
+from app.core.formatting import MONTHS_GEN, fmt_card, plain
 from app.llm.base import ToolCall
 from app.speech.base import SpeechToText, TextToSpeech
 
@@ -135,10 +136,27 @@ async def on_view(callback: CallbackQuery, assistant: Assistant, public_base: st
     await _edit_panel(callback, *await _render(assistant, callback.from_user.id, view, anchor, public_base))
 
 
-@router.callback_query(F.data.startswith("ls:"))
-async def on_list_done(callback: CallbackQuery, assistant: Assistant, public_base: str) -> None:
+@router.callback_query(F.data.startswith("it:"))
+async def on_list_item(callback: CallbackQuery, assistant: Assistant) -> None:
+    """Пункт списка -> карточка записи с понятными действиями."""
     _, event_id, view, anchor = callback.data.split(":")
-    result = await assistant.run_action(callback.from_user.id, ToolCall("complete_event", {"event_id": int(event_id)}))
+    uid = callback.from_user.id
+    event = await assistant.event(uid, int(event_id))
+    if event is None:
+        await callback.answer("Запись не найдена — возможно, её уже удалили.", show_alert=True)
+        return
+    await callback.answer()
+    tz = ZoneInfo((await assistant.settings(uid)).timezone)
+    text = fmt_card(event, tz, datetime.now(tz).date()) + "\n\nЧто сделать с записью?"
+    await _edit_panel(callback, text, item_actions(event, view, date.fromisoformat(anchor)))
+
+
+@router.callback_query(F.data.startswith(("ls:", "lx:")))
+async def on_item_action(callback: CallbackQuery, assistant: Assistant, public_base: str) -> None:
+    """Карточка: выполнено / удалить — и обратно к тому же списку."""
+    action, event_id, view, anchor = callback.data.split(":")
+    tool = "complete_event" if action == "ls" else "delete_event"
+    result = await assistant.run_action(callback.from_user.id, ToolCall(tool, {"event_id": int(event_id)}))
     await callback.answer(_head(result))
     await _edit_panel(callback, *await _render(assistant, callback.from_user.id, view, date.fromisoformat(anchor), public_base))
 
@@ -277,7 +295,8 @@ async def _render(assistant: Assistant, user_id: int, view: str, anchor: date | 
         return _export_text(bool(subscribe)), export_actions(subscribe)
     if view == "t":
         result = await assistant.tasks_overview(user_id)
-        return result.text, list_actions(result.events, "t", anchor or date.today())
+        tz = ZoneInfo((await assistant.settings(user_id)).timezone)
+        return result.text, list_actions(result.events, "t", anchor or date.today(), tz)
 
     anchor = anchor or await _local_today(assistant, user_id)
     if view == "w":
@@ -286,7 +305,8 @@ async def _render(assistant: Assistant, user_id: int, view: str, anchor: date | 
     else:
         span = {"date_from": anchor.isoformat(), "date_to": anchor.isoformat()}
     result = await assistant.run_action(user_id, ToolCall("list_events", {"period": "custom", **span}))
-    return _list_title(result, view, anchor), list_actions(result.events, view, anchor)
+    tz = ZoneInfo((await assistant.settings(user_id)).timezone)
+    return _list_title(result, view, anchor), list_actions(result.events, view, anchor, tz)
 
 
 async def _home(assistant: Assistant, user_id: int):
