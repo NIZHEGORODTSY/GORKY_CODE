@@ -82,7 +82,9 @@ class EventRepository:
             return []
         tsquery = func.to_tsquery("russian", " | ".join(f"{w}:*" for w in words))
         tsvector = func.to_tsvector("russian", EventRow.title)
-        q = select(EventRow).where(EventRow.user_id == user_id, tsvector.op("@@")(tsquery))
+        q = select(EventRow).where(
+            EventRow.user_id == user_id, EventRow.status != EventStatus.CANCELLED.value, tsvector.op("@@")(tsquery)
+        )
         if kinds:
             q = q.where(EventRow.kind.in_([k.value for k in kinds]))
         q = q.order_by(func.ts_rank(tsvector, tsquery).desc(), EventRow.starts_at.desc().nulls_last())
@@ -91,7 +93,7 @@ class EventRepository:
 
     async def list_recent(self, user_id: int, kinds: set[EventKind] | None = None, limit: int = 200) -> list[Event]:
         """Последние созданные записи — кандидаты для поиска по смыслу."""
-        q = select(EventRow).where(EventRow.user_id == user_id)
+        q = select(EventRow).where(EventRow.user_id == user_id, EventRow.status != EventStatus.CANCELLED.value)
         if kinds:
             q = q.where(EventRow.kind.in_([k.value for k in kinds]))
         rows = await self._s.scalars(q.order_by(EventRow.created_at.desc()).limit(limit))
@@ -129,3 +131,28 @@ class EventRepository:
             return False
         row.status = status.value
         return True
+
+    async def reschedule(
+        self, user_id: int, event_id: int, starts_at: datetime | None, ends_at: datetime | None, all_day: bool
+    ) -> None:
+        await self._s.execute(
+            update(EventRow)
+            .where(EventRow.user_id == user_id, EventRow.id == event_id)
+            # Новое время — напоминание нужно отправить заново
+            .values(starts_at=starts_at, ends_at=ends_at, all_day=all_day, notified_at=None)
+        )
+
+    async def overlapping_meetings(
+        self, user_id: int, start: datetime, end: datetime, exclude_id: int | None = None
+    ) -> list[Event]:
+        q = select(EventRow).where(
+            EventRow.user_id == user_id,
+            EventRow.kind == EventKind.MEETING.value,
+            EventRow.status == EventStatus.OPEN.value,
+            EventRow.starts_at < end,
+            EventRow.ends_at > start,
+        )
+        if exclude_id is not None:
+            q = q.where(EventRow.id != exclude_id)
+        rows = await self._s.scalars(q.order_by(EventRow.starts_at))
+        return [r.to_domain() for r in rows]

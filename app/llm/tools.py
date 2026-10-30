@@ -82,7 +82,8 @@ SEARCH_EVENTS = ToolSpec(
     name="search_events",
     description=(
         "Найти ранее созданные записи по смыслу, включая прошедшие и выполненные: "
-        "«найди задачу про договор», «когда была встреча с Иваном»."
+        "«найди задачу про договор», «когда была встреча с Иваном». "
+        "Не используй перед переносом, выполнением или удалением — те функции сами находят запись по query."
     ),
     parameters={
         "type": "object",
@@ -97,4 +98,42 @@ SEARCH_EVENTS = ToolSpec(
     },
 )
 
-TOOLS = [CREATE_EVENT, LIST_EVENTS, SEARCH_EVENTS]
+_TARGET = {
+    "event_id": {
+        "type": "integer",
+        "description": "Номер записи из списка «Записи из последних ответов», если речь о ней («её», «эту», «первую»).",
+    },
+    "query": {
+        "type": "string",
+        "description": "Если записи нет в контексте — ключевые слова, по которым её найти.",
+    },
+}
+
+UPDATE_EVENT = ToolSpec(
+    name="update_event",
+    description="Перенести запись на другой день и/или время: «перенеси её на завтра», «сдвинь созвон на 17:00».",
+    parameters={
+        "type": "object",
+        "properties": {
+            **_TARGET,
+            "day": CREATE_EVENT.parameters["properties"]["day"],
+            "date": CREATE_EVENT.parameters["properties"]["date"],
+            "time": CREATE_EVENT.parameters["properties"]["time"],
+            "in_minutes": CREATE_EVENT.parameters["properties"]["in_minutes"],
+        },
+    },
+)
+
+COMPLETE_EVENT = ToolSpec(
+    name="complete_event",
+    description="Отметить задачу выполненной: «я позвонил Ивану», «готово», «отметь отчёт сделанным».",
+    parameters={"type": "object", "properties": _TARGET},
+)
+
+DELETE_EVENT = ToolSpec(
+    name="delete_event",
+    description="Удалить или отменить запись: «удали задачу про билеты», «встреча отменилась».",
+    parameters={"type": "object", "properties": _TARGET},
+)
+
+TOOLS = [CREATE_EVENT, LIST_EVENTS, SEARCH_EVENTS, UPDATE_EVENT, COMPLETE_EVENT, DELETE_EVENT]
