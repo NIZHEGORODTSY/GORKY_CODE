@@ -26,13 +26,14 @@ scp .env.prod <user>@<ip>:~/GORKY_CODE/.env
 
 ## 3. Календарь (Mini App) — по желанию
 
-Telegram открывает Mini App только по HTTPS. Свой домен не обязателен: подойдёт бесплатный
-`<ip-через-дефисы>.sslip.io` — он указывает на IP сервера, и Caddy получит для него сертификат Let's Encrypt.
+Telegram открывает Mini App и подписку на календарь только по HTTPS, поэтому нужен домен с A-записью на
+IP сервера. У нас — поддомен `gorky.po-bvi.ru`. Бесплатные `sslip.io` / `nip.io` в России блокируются
+провайдерами (соединение есть, ответа нет), их не используем.
 
 В `.env` на сервере:
 
 ```
-WEBAPP_DOMAIN=95-163-10-20.sslip.io
+WEBAPP_DOMAIN=gorky.po-bvi.ru
 ```
 
 Порты 80 и 443 должны быть открыты (`ufw allow 80,443/tcp`, если включён ufw).
@@ -52,7 +53,7 @@ cp deploy/nginx-gorky.conf /etc/nginx/sites-available/gorky
 ln -s /etc/nginx/sites-available/gorky /etc/nginx/sites-enabled/gorky
 nginx -t && systemctl reload nginx                     # reload — без остановки работающих сайтов
 
-certbot --nginx -d 89-111-136-194.sslip.io             # сертификат только для нашего домена
+certbot --nginx -d gorky.po-bvi.ru             # сертификат только для нашего домена
 ```
 
 Если на сервере нет каталога `sites-enabled`, файл кладётся в `/etc/nginx/conf.d/gorky.conf`.

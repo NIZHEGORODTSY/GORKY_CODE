@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Мои планы</title>
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
     --bg: var(--tg-theme-bg-color, #ffffff);
@@ -73,8 +72,41 @@
 <div class="card" id="undatedCard" hidden><h2>Без срока</h2><div id="undatedList"></div></div>
 
 <script>
-const tg = window.Telegram.WebApp;
-tg.ready(); tg.expand();
+// telegram.org может тормозить без VPN — не ждём его. Данные пользователя Telegram передаёт в адресе
+// страницы (#tgWebAppData), календарь стартует сразу; SDK (вибрация, нижняя кнопка) подгружается в фоне.
+const hash = new URLSearchParams(location.hash.slice(1));
+const fallback = {
+  initData: hash.get("tgWebAppData") || "",
+  ready() {}, expand() {}, close() { history.back(); },
+  HapticFeedback: { selectionChanged() {}, notificationOccurred() {} },
+  MainButton: { setParams() {}, onClick() {} },
+  showConfirm: (text, cb) => cb(confirm(text)),
+  showAlert: (text) => alert(text),
+};
+let tg = fallback;
+applyTheme(hash.get("tgWebAppThemeParams"));
+
+const sdk = document.createElement("script");
+sdk.src = "https://telegram.org/js/telegram-web-app.js";
+sdk.async = true;
+sdk.onload = () => {
+  const webApp = window.Telegram && window.Telegram.WebApp;
+  if (!webApp || !webApp.initData) return;
+  tg = webApp;
+  tg.ready(); tg.expand();
+  tg.MainButton.setParams({ text: "🎙 Добавить голосом", is_visible: true });
+  tg.MainButton.onClick(() => tg.close());
+};
+document.head.append(sdk);
+
+function applyTheme(raw) {
+  try {
+    const theme = JSON.parse(raw || "{}");
+    for (const [key, value] of Object.entries(theme)) {
+      document.documentElement.style.setProperty("--tg-theme-" + key.replaceAll("_", "-"), value);
+    }
+  } catch { /* без темы — цвета по умолчанию */ }
+}
 
 const MONTHS = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"];
 const MONTHS_GEN = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
@@ -179,9 +211,6 @@ function shiftMonth(delta) {
 }
 document.getElementById("prev").onclick = () => shiftMonth(-1);
 document.getElementById("next").onclick = () => shiftMonth(1);
-
-tg.MainButton.setParams({ text: "🎙 Добавить голосом", is_visible: true });
-tg.MainButton.onClick(() => tg.close());
 
 function showError(err) {
   console.error(err);
