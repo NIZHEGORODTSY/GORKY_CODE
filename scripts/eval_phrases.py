@@ -40,6 +40,11 @@ CASES = [
     ("В четверг в 11 у меня встреча с дизайнером", "create_event", {"kind": "meeting", "at": "2026-11-05 11:00"}),
     ("Созвон с заказчиком во вторник в 3 дня", "create_event", {"kind": "meeting", "at": "2026-11-03 15:00"}),
     ("Поставь встречу с Иваном завтра", "create_event", {"kind": "meeting", "clarify": True}),
+    ("Каждый понедельник в 10 планёрка", "create_event", {"kind": "meeting", "at": "2026-11-02 10:00", "repeat": "weekly:0"}),
+    ("Напоминай каждый день в 22:00 пить таблетки", "create_event", {"kind": "reminder", "at": "2026-10-30 22:00", "repeat": "daily"}),
+    ("По будням в 9 утра зарядка", "create_event", {"at": "2026-11-02 09:00", "repeat": "weekdays"}),
+    ("Я живу в Новосибирске", "update_settings", {"timezone": "Asia/Novosibirsk"}),
+    ("Не отвечай мне голосом", "update_settings", {"voice_replies": False}),
     ("Что у меня сегодня?", "list_events", {"period": "today"}),
     ("Какие планы на сегодня?", "list_events", {"period": "today"}),
     ("Покажи мои встречи на сегодня", "list_events", {"period": "today", "kind": "meeting"}),
@@ -68,6 +73,7 @@ EDIT_CASES = [
     ("Отметь задачу про билеты выполненной", [], (8, "done")),
     ("Удали задачу про билеты", [], (8, "cancelled")),
     ("Встреча с Иваном отменилась", [7], (7, "cancelled")),
+    ("Переименуй её в Созвон с заказчиком", [7], (7, "title:Созвон с заказчиком")),
 ]
 
 # Поиск по смыслу: (запрос, какие записи должны найтись) среди SEARCH_POOL
@@ -104,6 +110,8 @@ async def check(reply: LLMReply, tool: str, expected: dict) -> str | None:
     if not repo.events:
         return "не создал запись"
     e = repo.events[0]
+    if "repeat" in expected and e.recurrence != expected["repeat"]:
+        return f"repeat={e.recurrence} (ждали {expected['repeat']})"
     if "kind" in expected and e.kind != expected["kind"]:
         return f"kind={e.kind}"
     local = e.starts_at.astimezone(NOW.tzinfo) if e.starts_at else None
@@ -148,7 +156,12 @@ async def run_edits(llm) -> int:
         else:
             await run_tool_call(llm, [system, ChatMessage("user", phrase)], call, Actions(repo, 1, NOW, recent=recent))
             e = await repo.get(1, event_id)
-            got = e.status.value if want in ("done", "cancelled") else f"{e.starts_at.astimezone(NOW.tzinfo):%Y-%m-%d %H:%M}"
+            if want.startswith("title:"):
+                got = "title:" + e.title
+            elif want in ("done", "cancelled"):
+                got = e.status.value
+            else:
+                got = f"{e.starts_at.astimezone(NOW.tzinfo):%Y-%m-%d %H:%M}"
             if got != want:
                 error = f"{call.name}: {got} (ждали {want})"
         ok += error is None

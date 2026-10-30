@@ -1,6 +1,6 @@
 """Функции, которые может вызвать LLM. Описания — часть промпта, формулируем точно."""
 
-from app.core.dates import DAY_TOKENS
+from app.core.dates import DAY_TOKENS, WEEKDAY_TOKENS
 from app.llm.base import ToolSpec
 
 CREATE_EVENT = ToolSpec(
@@ -40,7 +40,10 @@ CREATE_EVENT = ToolSpec(
             },
             "time": {
                 "type": "string",
-                "description": "Время HH:MM (24 часа). Не заполняй и не придумывай, если время не названо.",
+                "description": (
+                    "Время HH:MM (24 часа): «в 9 утра» — 09:00, «в 3 дня» — 15:00, «в 22:00» — 22:00. "
+                    "Не заполняй и не придумывай, если время не названо."
+                ),
             },
             "in_minutes": {
                 "type": "integer",
@@ -49,6 +52,19 @@ CREATE_EVENT = ToolSpec(
             "duration_minutes": {
                 "type": "integer",
                 "description": "Длительность встречи в минутах, только если названа.",
+            },
+            "repeat": {
+                "type": "string",
+                "enum": ["daily", "weekdays", "weekly", "monthly"],
+                "description": (
+                    "Только если сказано про повтор (время при этом — в поле time): «каждый день» — daily, «по будням» — weekdays, "
+                    "«каждый понедельник», «по средам и пятницам» — weekly (+ repeat_days), «каждый месяц» — monthly."
+                ),
+            },
+            "repeat_days": {
+                "type": "array",
+                "items": {"type": "string", "enum": WEEKDAY_TOKENS},
+                "description": "Дни недели для repeat=weekly.",
             },
         },
         "required": ["kind", "title"],
@@ -111,7 +127,10 @@ _TARGET = {
 
 UPDATE_EVENT = ToolSpec(
     name="update_event",
-    description="Перенести запись на другой день и/или время: «перенеси её на завтра», «сдвинь созвон на 17:00».",
+    description=(
+        "Изменить запись: перенести («перенеси её на завтра», «сдвинь созвон на 17:00»), "
+        "переименовать («переименуй встречу в …»), изменить длительность встречи."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -120,6 +139,8 @@ UPDATE_EVENT = ToolSpec(
             "date": CREATE_EVENT.parameters["properties"]["date"],
             "time": CREATE_EVENT.parameters["properties"]["time"],
             "in_minutes": CREATE_EVENT.parameters["properties"]["in_minutes"],
+            "title": {"type": "string", "description": "Новое название, только если просят переименовать."},
+            "duration_minutes": CREATE_EVENT.parameters["properties"]["duration_minutes"],
         },
     },
 )
@@ -136,4 +157,21 @@ DELETE_EVENT = ToolSpec(
     parameters={"type": "object", "properties": _TARGET},
 )
 
-TOOLS = [CREATE_EVENT, LIST_EVENTS, SEARCH_EVENTS, UPDATE_EVENT, COMPLETE_EVENT, DELETE_EVENT]
+UPDATE_SETTINGS = ToolSpec(
+    name="update_settings",
+    description=(
+        "Изменить настройки: часовой пояс («я в Новосибирске», «у меня время +4 к Москве»), "
+        "утреннюю сводку («присылай план по утрам в 8», «не присылай сводку»), "
+        "голосовые ответы («отвечай без голоса»)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "timezone": {"type": "string", "description": "Часовой пояс IANA, например Asia/Novosibirsk, Europe/Moscow."},
+            "digest_time": {"type": "string", "description": "Время утренней сводки HH:MM или off — выключить."},
+            "voice_replies": {"type": "boolean", "description": "Отвечать ли голосом на голосовые."},
+        },
+    },
+)
+
+TOOLS = [CREATE_EVENT, LIST_EVENTS, SEARCH_EVENTS, UPDATE_EVENT, COMPLETE_EVENT, DELETE_EVENT, UPDATE_SETTINGS]
