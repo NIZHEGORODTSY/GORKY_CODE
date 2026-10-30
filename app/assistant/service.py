@@ -10,6 +10,7 @@ from app.assistant.actions import Actions
 from app.assistant.prompt import build_system_prompt
 from app.llm.base import ChatMessage, LLMClient
 from app.llm.tools import TOOLS
+from app.search.llm_matcher import LLMEventMatcher
 from app.storage.repository import EventRepository, UserRepository
 
 log = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class Assistant:
     ):
         self._session_factory = session_factory
         self._llm = llm
+        self._matcher = LLMEventMatcher(llm)
         self._default_timezone = default_timezone
         self._clock = clock
         # История в памяти процесса: для прототипа достаточно, теряется при рестарте
@@ -54,7 +56,8 @@ class Assistant:
         if reply.tool_call:
             log.info("tool call %s %s", reply.tool_call.name, reply.tool_call.arguments)
             async with self._session_factory() as session, session.begin():
-                result = await Actions(EventRepository(session), user_id, now).run(reply.tool_call)
+                actions = Actions(EventRepository(session), user_id, now, self._matcher)
+                result = await actions.run(reply.tool_call)
             answer = result.text
         else:
             answer = reply.text.strip() or "Не понял запрос. Попробуй сформулировать иначе."

@@ -79,3 +79,15 @@ async def test_search():
     assert "Обсудить договор аренды" in res.text
     res = await actions.run(ToolCall("search_events", {"query": "презентация"}))
     assert "Не нашёл" in res.text
+
+
+class FakeMatcher:
+    async def match(self, query, candidates):
+        return [e for e in candidates if "Ивана" in e.title] if query == "Ваня" else []
+
+
+async def test_search_falls_back_to_matcher():
+    repo = FakeEventRepository()
+    await repo.add(meeting(USER, "Обед у Ивана", datetime(2026, 10, 20, 12, tzinfo=MSK)))
+    res = await Actions(repo, USER, NOW, FakeMatcher()).run(ToolCall("search_events", {"query": "Ваня"}))
+    assert "Обед у Ивана" in res.text

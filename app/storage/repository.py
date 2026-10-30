@@ -89,6 +89,14 @@ class EventRepository:
         rows = await self._s.scalars(q.limit(limit))
         return [r.to_domain() for r in rows]
 
+    async def list_recent(self, user_id: int, kinds: set[EventKind] | None = None, limit: int = 200) -> list[Event]:
+        """Последние созданные записи — кандидаты для поиска по смыслу."""
+        q = select(EventRow).where(EventRow.user_id == user_id)
+        if kinds:
+            q = q.where(EventRow.kind.in_([k.value for k in kinds]))
+        rows = await self._s.scalars(q.order_by(EventRow.created_at.desc()).limit(limit))
+        return [r.to_domain() for r in rows]
+
     async def due_notifications(
         self, now: datetime, meeting_lead: timedelta, max_age: timedelta
     ) -> list[Event]:
