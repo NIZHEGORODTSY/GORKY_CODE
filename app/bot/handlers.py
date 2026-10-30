@@ -23,6 +23,7 @@ from app.bot.keyboards import (
     TZ_LABEL,
     back_only,
     demo_actions,
+    demo_load_only,
     event_actions,
     export_actions,
     home_actions,
@@ -128,20 +129,22 @@ async def on_settings_button(callback: CallbackQuery, assistant: Assistant, publ
 async def on_demo(callback: CallbackQuery, assistant: Assistant, public_base: str) -> None:
     uid = callback.from_user.id
     if callback.data == "demo:load":
-        await callback.answer("Загружаю…")
+        # Сразу показываем, что работа идёт; итог — всплывающим окном, которое нельзя не заметить
+        await _edit_panel(callback, "⏳ <b>Загружаю 1000 записей из задания…</b>", None)
         try:
             count = await assistant.load_demo(uid)
         except Exception:
             log.exception("demo import failed")
-            await callback.message.answer("😕 Не получилось загрузить демо-данные — попробуй ещё раз чуть позже.")
+            await callback.answer("😕 Не получилось загрузить демо-данные. Попробуй ещё раз чуть позже.", show_alert=True)
+            await _edit_panel(callback, *await _render(assistant, uid, "demo", None, public_base))
             return
-        note = f"📥 Загрузил {count} записей." if count else "Демо-данные уже загружены."
+        total = await assistant.demo_count(uid)
+        popup = f"✅ Готово! Загружено {count} записей." if count else f"✅ Демо-данные уже загружены ({total} записей)."
+        await callback.answer(popup + " Попробуй спросить: «Когда у меня была встреча с Иваном?»", show_alert=True)
     else:
         count = await assistant.clear_demo(uid)
-        await callback.answer()
-        note = f"🧹 Убрал {count} демо-записей. Твои собственные записи не тронуты."
-    text, markup = await _render(assistant, uid, "demo", None, public_base)
-    await _edit_panel(callback, f"{note}\n\n{text}", markup)
+        await callback.answer(f"🧹 Убрал {count} демо-записей. Твои собственные записи не тронуты.", show_alert=True)
+    await _edit_panel(callback, *await _render(assistant, uid, "demo", None, public_base))
 
 
 @router.callback_query(F.data == "x:ics")
@@ -157,7 +160,8 @@ async def on_ics_file(callback: CallbackQuery, assistant: Assistant) -> None:
 async def on_text(message: Message, bot: Bot, assistant: Assistant) -> None:
     async with ChatActionSender.typing(bot=bot, chat_id=message.chat.id):
         result = await assistant.handle(message.from_user.id, message.text)
-    await message.answer(result.text, reply_markup=event_actions(result.events, result.undo))
+    text, markup = await _with_demo_hint(assistant, message.from_user.id, result)
+    await message.answer(text, reply_markup=markup)
 
 
 @router.message(F.voice)
@@ -177,9 +181,8 @@ async def on_voice(
             return
         result = await assistant.handle(message.from_user.id, text)
 
-    await message.answer(
-        f"🎙 <i>{escape(text)}</i>\n\n{result.text}", reply_markup=event_actions(result.events, result.undo)
-    )
+    reply, markup = await _with_demo_hint(assistant, message.from_user.id, result)
+    await message.answer(f"🎙 <i>{escape(text)}</i>\n\n{reply}", reply_markup=markup)
     if not (await assistant.settings(message.from_user.id)).voice_replies:
         return
     try:
@@ -231,7 +234,7 @@ async def _render(assistant: Assistant, user_id: int, view: str, anchor: date | 
     if view == "demo":
         count = await assistant.demo_count(user_id)
         if count:
-            text = f"📥 <b>Демо-данные загружены</b> — {count} записей из CSV тестового задания (2024–2027).\n\n{DEMO_TRY}"
+            text = f"✅ <b>Демо-данные загружены: {count} записей</b>\nИз CSV тестового задания, 2024–2027 годы.\n\n{DEMO_TRY}"
         else:
             text = (
                 "📥 <b>Демо-данные из задания</b>\n\n"
@@ -346,6 +349,14 @@ async def _delete(message: Message) -> None:
         await message.delete()
     except TelegramBadRequest:
         pass
+
+
+async def _with_demo_hint(assistant: Assistant, user_id: int, result: ActionResult):
+    """Поиск ничего не нашёл, а демо-данные не загружены — предлагаем загрузить (частый случай у проверяющих)."""
+    if not result.events and result.text.startswith("🤷") and not await assistant.demo_count(user_id):
+        hint = "\n\n💡 Демо-данные из задания (1000 записей) ещё не загружены — загрузи и спроси снова."
+        return result.text + hint, demo_load_only()
+    return result.text, event_actions(result.events, result.undo)
 
 
 async def _local_today(assistant: Assistant, user_id: int) -> date:

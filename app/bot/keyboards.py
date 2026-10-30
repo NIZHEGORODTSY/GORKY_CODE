@@ -73,6 +73,10 @@ def home_actions(today: date) -> InlineKeyboardMarkup:
     ])
 
 
+def demo_load_only() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[btn("📥 Загрузить демо-данные", "demo:load")]])
+
+
 def demo_actions(loaded: bool) -> InlineKeyboardMarkup:
     action = btn("🧹 Убрать демо-данные", "demo:clear") if loaded else btn("📥 Загрузить 1000 записей", "demo:load")
     return InlineKeyboardMarkup(inline_keyboard=[[action], BACK_TO_MENU])
