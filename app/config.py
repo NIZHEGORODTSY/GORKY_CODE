@@ -24,6 +24,9 @@ class Settings(BaseSettings):
 
     sber_ca_bundle: str = ""
 
+    # Прокси только для Telegram (если хостинг его блокирует): socks5://xray:1080 или http://...
+    telegram_proxy: str = ""
+
     default_timezone: str = "Europe/Moscow"
     log_level: str = "INFO"
 

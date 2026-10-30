@@ -7,12 +7,12 @@ cd "$(dirname "$0")/.."
 
 git pull --ff-only
 
-# С доменом поднимаем ещё и Caddy (HTTPS для Mini App)
-if grep -q '^WEBAPP_DOMAIN=.' .env; then
-  docker compose --profile https up -d --build
-else
-  docker compose up -d --build
-fi
+# Дополнительные сервисы: Caddy (HTTPS для Mini App), если задан домен; xray (прокси для Telegram), если есть конфиг
+PROFILES=""
+grep -q '^WEBAPP_DOMAIN=.' .env && PROFILES="$PROFILES --profile https"
+[ -f xray/config.json ] && PROFILES="$PROFILES --profile proxy"
 
-docker compose ps
+# shellcheck disable=SC2086
+docker compose $PROFILES up -d --build
+docker compose $PROFILES ps
 docker compose logs --tail=20 bot

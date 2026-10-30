@@ -26,6 +26,15 @@ services:
       db:
         condition: service_healthy
 
+  # Прокси для Telegram, если хостинг его блокирует (VLESS из VPN-подписки).
+  # Конфиг: python3 scripts/vless_to_xray.py '<ссылка>' -> xray/config.json; в .env TELEGRAM_PROXY=socks5://xray:1080
+  xray:
+    image: teddysun/xray:latest
+    profiles: ["proxy"]
+    restart: unless-stopped
+    volumes:
+      - ./xray/config.json:/etc/xray/config.json:ro
+
   # HTTPS для Mini App. Запуск: docker compose --profile https up -d (нужен WEBAPP_DOMAIN в .env)
   caddy:
     image: caddy:2-alpine

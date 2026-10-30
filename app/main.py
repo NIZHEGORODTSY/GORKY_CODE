@@ -3,6 +3,7 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 
 from app.assistant.service import Assistant
@@ -37,7 +38,8 @@ async def main() -> None:
     )
     tts = EdgeTTS(settings.tts_voice)
 
-    bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    session = AiohttpSession(proxy=settings.telegram_proxy) if settings.telegram_proxy else None
+    bot = Bot(settings.bot_token, session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(
         assistant=assistant,
         stt=stt,

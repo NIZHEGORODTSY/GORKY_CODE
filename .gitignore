@@ -30,3 +30,6 @@ data/
 .DS_Store
 Thumbs.db
 
+
+# Прокси для Telegram (VLESS -> xray), содержит секреты подписки
+xray/config.json

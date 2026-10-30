@@ -38,6 +38,23 @@ WEBAPP_DOMAIN=95-163-10-20.sslip.io
 Порты 80 и 443 должны быть открыты (`ufw allow 80,443/tcp`, если включён ufw).
 Без `WEBAPP_DOMAIN` бот работает полностью, просто без кнопки «Календарь».
 
+## 3а. Если хостинг блокирует Telegram
+
+Признак — в `docker compose logs bot` ошибка `TelegramNetworkError: Request timeout error`. Проверка:
+`curl -s -o /dev/null -w "%{http_code}\n" --max-time 15 https://api.telegram.org` даёт `000`.
+
+Решение — пустить только запросы к Telegram через VPN (VLESS, например подписка Happ). На сервере:
+
+```bash
+python3 scripts/vless_to_xray.py 'https://ссылка-подписки' --list   # список серверов
+python3 scripts/vless_to_xray.py 'https://ссылка-подписки' --index 1  # создаёт xray/config.json
+echo 'TELEGRAM_PROXY=socks5://xray:1080' >> .env
+./scripts/deploy.sh                                                   # поднимет и xray
+```
+
+Ссылку подписки берём в Happ (поделиться/скопировать подписку). Это секрет: `xray/config.json` в
+`.gitignore`, в чат и git не отправлять. GigaChat и база ходят напрямую, через прокси — только Telegram.
+
 ## 4. Запуск и обновление
 
 ```bash
