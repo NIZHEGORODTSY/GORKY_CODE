@@ -38,6 +38,26 @@ WEBAPP_DOMAIN=95-163-10-20.sslip.io
 Порты 80 и 443 должны быть открыты (`ufw allow 80,443/tcp`, если включён ufw).
 Без `WEBAPP_DOMAIN` бот работает полностью, просто без кнопки «Календарь».
 
+## 3б. HTTPS через существующий nginx (порты 80/443 заняты другим проектом)
+
+Свой Caddy не запускаем. Бот слушает `127.0.0.1:18080`, nginx отдаёт наружу только наш домен —
+остальные сайты на сервере не затрагиваются.
+
+```bash
+echo 'REVERSE_PROXY=nginx' >> .env                     # deploy.sh не будет поднимать Caddy
+docker compose rm -sf caddy                            # если Caddy уже пытался стартовать
+./scripts/deploy.sh
+
+cp deploy/nginx-gorky.conf /etc/nginx/sites-available/gorky
+ln -s /etc/nginx/sites-available/gorky /etc/nginx/sites-enabled/gorky
+nginx -t && systemctl reload nginx                     # reload — без остановки работающих сайтов
+
+certbot --nginx -d 89-111-136-194.sslip.io             # сертификат только для нашего домена
+```
+
+Если на сервере нет каталога `sites-enabled`, файл кладётся в `/etc/nginx/conf.d/gorky.conf`.
+Если нет certbot: `apt install -y certbot python3-certbot-nginx`.
+
 ## 3а. Если хостинг блокирует Telegram
 
 Признак — в `docker compose logs bot` ошибка `TelegramNetworkError: Request timeout error`. Проверка:

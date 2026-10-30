@@ -22,6 +22,9 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    # Mini App и календарь — только на localhost сервера; наружу их отдаёт Caddy или уже стоящий nginx
+    ports:
+      - "127.0.0.1:${WEBAPP_HOST_PORT:-18080}:8080"
     depends_on:
       db:
         condition: service_healthy

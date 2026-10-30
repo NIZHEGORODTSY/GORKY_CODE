@@ -9,7 +9,9 @@ git pull --ff-only
 
 # Дополнительные сервисы: Caddy (HTTPS для Mini App), если задан домен; xray (прокси для Telegram), если есть конфиг
 PROFILES=""
-grep -q '^WEBAPP_DOMAIN=.' .env && PROFILES="$PROFILES --profile https"
+if grep -q '^WEBAPP_DOMAIN=.' .env && ! grep -q '^REVERSE_PROXY=nginx' .env; then
+  PROFILES="$PROFILES --profile https"   # свой Caddy; с REVERSE_PROXY=nginx HTTPS даёт уже стоящий nginx
+fi
 [ -f xray/config.json ] && PROFILES="$PROFILES --profile proxy"
 
 # shellcheck disable=SC2086
