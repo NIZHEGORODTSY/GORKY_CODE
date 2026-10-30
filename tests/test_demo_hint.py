@@ -18,4 +18,5 @@ async def test_hint_when_nothing_found_and_no_demo():
 
 async def test_no_hint_when_demo_loaded():
     text, markup = await _with_demo_hint(FakeAssistant(1000), 1, ActionResult("🤷 Не нашёл записей про «Иван»."))
-    assert "ещё не загружены" not in text and markup is None
+    assert "ещё не загружены" not in text
+    assert markup.inline_keyboard[-1][0].callback_data == "m:open"

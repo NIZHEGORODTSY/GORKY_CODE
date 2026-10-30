@@ -51,3 +51,28 @@ async def test_index_is_public():
         assert resp.status == 200 and "telegram-web-app.js" in await resp.text()
     finally:
         await client.close()
+
+
+async def test_subscribe_page_unknown_token_404():
+    class Sessions:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        def begin(self):
+            return self
+
+        async def scalar(self, *_):
+            return None
+
+    client = TestClient(TestServer(create_app(TOKEN, FakeAssistant(), session_factory=Sessions(), default_tz="Europe/Moscow")))
+    await client.start_server()
+    try:
+        assert (await client.get("/calendar/nope")).status == 404
+    finally:
+        await client.close()

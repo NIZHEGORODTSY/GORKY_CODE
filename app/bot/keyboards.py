@@ -7,7 +7,7 @@ callback_data (≤ 64 байт):
     v:<d|w>:<YYYY-MM-DD>                   день / неделя (листание)
     ls:<id>:<d|w|t>:<YYYY-MM-DD>           выполнить пункт списка и перерисовать раздел
     set:<voice|digest|tz>:<значение>       изменить настройку
-    x:ics                                  прислать файл .ics
+    m:open                                 открыть панель внизу чата (из ответа бота)
     demo:<load|clear>                      загрузить / убрать демо-данные из задания
     ev:<done|del|ics>:<id>                 действие с записью из ответа бота
     ev:snooze:<id>:<минуты>                отложить напоминание
@@ -15,7 +15,6 @@ callback_data (≤ 64 байт):
 """
 
 from datetime import date, timedelta
-from urllib.parse import quote
 
 from aiogram.types import (
     InlineKeyboardButton,
@@ -106,13 +105,10 @@ def list_actions(events: list[Event], view: str, anchor: date) -> InlineKeyboard
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def export_actions(feed_url: str) -> InlineKeyboardMarkup:
+def export_actions(subscribe_url: str) -> InlineKeyboardMarkup:
     rows = []
-    if feed_url:
-        webcal = "webcal://" + feed_url.removeprefix("https://")
-        google = "https://calendar.google.com/calendar/render?cid=" + quote(webcal, safe="")
-        rows.append([InlineKeyboardButton(text="➕ Google Календарь", url=google)])
-    rows.append([btn("📥 Скачать файл .ics", "x:ics")])
+    if subscribe_url:
+        rows.append([InlineKeyboardButton(text="📆 Подключить к календарю телефона", url=subscribe_url)])
     rows.append(BACK_TO_MENU)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -134,18 +130,21 @@ def timezone_actions() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def event_actions(events: list[Event], undo: str | None = None) -> InlineKeyboardMarkup | None:
-    """Под ответом об одной записи: выполнить / удалить / в календарь. После действия — «Вернуть»."""
+OPEN_MENU = [btn("🏠 Меню", "m:open")]
+
+
+def event_actions(events: list[Event], undo: str | None = None) -> InlineKeyboardMarkup:
+    """Под ответом бота: про одну запись — выполнить / удалить, после действия — «Вернуть»; всегда — «Меню»."""
     if undo:
-        return InlineKeyboardMarkup(inline_keyboard=[[btn("↩️ Вернуть", f"ev:undo:{undo}")]])
+        return InlineKeyboardMarkup(inline_keyboard=[[btn("↩️ Вернуть", f"ev:undo:{undo}")], OPEN_MENU])
     if len(events) != 1 or events[0].status != EventStatus.OPEN or events[0].id is None:
-        return None
+        return InlineKeyboardMarkup(inline_keyboard=[OPEN_MENU])
     e = events[0]
     done_label = "✅ Прошла" if e.kind == EventKind.MEETING else "✅ Выполнено"
-    rows = [[btn(done_label, f"ev:done:{e.id}"), btn("🗑 Удалить", f"ev:del:{e.id}")]]
-    if e.starts_at is not None:
-        rows.append([btn("📥 В календарь телефона", f"ev:ics:{e.id}")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [btn(done_label, f"ev:done:{e.id}"), btn("🗑 Удалить", f"ev:del:{e.id}")],
+        OPEN_MENU,
+    ])
 
 
 def reminder_actions(event_id: int) -> InlineKeyboardMarkup:

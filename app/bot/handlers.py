@@ -147,11 +147,12 @@ async def on_demo(callback: CallbackQuery, assistant: Assistant, public_base: st
     await _edit_panel(callback, *await _render(assistant, uid, "demo", None, public_base))
 
 
-@router.callback_query(F.data == "x:ics")
-async def on_ics_file(callback: CallbackQuery, assistant: Assistant) -> None:
-    ics, _ = await assistant.export_ics(callback.from_user.id)
-    await callback.answer("Открой файл — записи добавятся в календарь")
-    await callback.message.answer_document(BufferedInputFile(ics.encode(), filename="gorky-plans.ics"))
+@router.callback_query(F.data == "m:open")
+async def on_open_menu(callback: CallbackQuery, bot: Bot, assistant: Assistant, public_base: str) -> None:
+    """«Меню» под ответом бота: ответ остаётся, панель открывается внизу чата."""
+    await callback.answer()
+    home = await _render(assistant, callback.from_user.id, "home", None, public_base)
+    await _show_panel(bot, callback.message.chat.id, *home)
 
 
 # --- свободный текст и голос ---------------------------------------------------
@@ -201,11 +202,6 @@ async def on_event_button(callback: CallbackQuery, assistant: Assistant) -> None
     _, action, *rest = callback.data.split(":")
     event_id = int(rest[0])
     uid = callback.from_user.id
-    if action == "ics":
-        ics, _ = await assistant.export_ics(uid, event_id)
-        await callback.answer("Открой файл — запись добавится в календарь")
-        await callback.message.answer_document(BufferedInputFile(ics.encode(), filename=f"event-{event_id}.ics"))
-        return
     calls = {
         "done": ToolCall("complete_event", {"event_id": event_id}),
         "del": ToolCall("delete_event", {"event_id": event_id}),
@@ -250,8 +246,8 @@ async def _render(assistant: Assistant, user_id: int, view: str, anchor: date | 
         return "🌍 <b>Часовой пояс</b>\n\nВыбери город или просто скажи: «я в Хабаровске».", timezone_actions()
     if view == "export":
         _, token = await assistant.export_ics(user_id)
-        feed = f"{public_base}/ics/{token}.ics" if public_base else ""
-        return _export_text(feed), export_actions(feed)
+        subscribe = f"{public_base}/calendar/{token}" if public_base else ""
+        return _export_text(bool(subscribe)), export_actions(subscribe)
     if view == "t":
         result = await assistant.tasks_overview(user_id)
         return result.text, list_actions(result.events, "t", anchor or date.today())
@@ -289,24 +285,20 @@ def _list_title(result: ActionResult, view: str, anchor: date) -> str:
     return result.text
 
 
-def _export_text(feed: str) -> str:
-    lines = ["📆 <b>Планы в календаре телефона</b>", ""]
-    if feed:
-        lines += [
-            "Ссылка-подписка — календарь будет обновляться сам:",
-            f"<code>{feed}</code>",
-            "",
-            "• <b>Android / Google:</b> кнопка ниже",
-            "• <b>iPhone:</b> Настройки → Календарь → Учётные записи → Добавить → Другое → "
-            "Подписной календарь → вставь ссылку",
-            "• <b>Яндекс Календарь:</b> Добавить календарь → Подписаться → вставь ссылку",
-        ]
-    else:
-        lines += [
-            "Скачай файл и открой его — iPhone и Android предложат добавить записи в календарь.",
-            "Ссылка-подписка с автообновлением появится, когда бот будет работать на сервере.",
-        ]
-    return "\n".join(lines)
+def _export_text(available: bool) -> str:
+    if not available:
+        return (
+            "📆 <b>Календарь телефона</b>\n\n"
+            "Подключение появится, когда бот работает на сервере с HTTPS."
+        )
+    return (
+        "📆 <b>Календарь телефона</b>\n\n"
+        "Подключи один раз — все задачи, напоминания и встречи будут появляться в обычном "
+        "календаре телефона сами, вместе с повторами и оповещениями.\n\n"
+        "• <b>iPhone</b> — откроется окно «Подписаться на календарь», нажми «Подписаться».\n"
+        "• <b>Android</b> — откроется Google Календарь, нажми «Добавить».\n\n"
+        "<i>iPhone обновляет календарь примерно раз в час, Google — реже.</i>"
+    )
 
 
 def _settings_text(s) -> str:

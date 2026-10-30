@@ -7,6 +7,7 @@
 import logging
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 from aiogram.utils.web_app import safe_parse_webapp_init_data
@@ -39,6 +40,7 @@ def create_app(bot_token: str, assistant: Assistant, session_factory: async_sess
     app.router.add_get("/api/events", _list_events)
     app.router.add_post("/api/events/{event_id:\\d+}/{action}", _event_action)
     app.router.add_get("/ics/{token}.ics", _ics_feed)
+    app.router.add_get("/calendar/{token}", _subscribe_page)
     return app
 
 
@@ -110,6 +112,24 @@ async def _event_action(request: web.Request) -> web.Response:
     event_id = int(request.match_info["event_id"])
     result = await request.app[CTX]["assistant"].run_action(request[USER_ID], ToolCall(action, {"event_id": event_id}))
     return web.json_response({"message": plain(result.text)})
+
+
+async def _subscribe_page(request: web.Request) -> web.Response:
+    """Страница «подключить календарь»: webcal:// для Apple, Google — по ссылке cid. Telegram-кнопки
+    умеют открывать только https, поэтому системные ссылки отдаём через эту страницу."""
+    token = request.match_info["token"]
+    async with request.app[CTX]["sessions"]() as session, session.begin():
+        if await UserRepository(session).by_ics_token(token) is None:
+            raise web.HTTPNotFound()
+    host = request.headers.get("X-Forwarded-Host") or request.host
+    feed = f"{host}/ics/{token}.ics"
+    html = (STATIC_DIR / "subscribe.html").read_text(encoding="utf-8")
+    html = (
+        html.replace("__WEBCAL__", f"webcal://{feed}")
+        .replace("__GOOGLE__", "https://calendar.google.com/calendar/render?cid=" + quote(f"webcal://{feed}", safe=""))
+        .replace("__HTTPS__", f"https://{feed}")
+    )
+    return web.Response(text=html, content_type="text/html")
 
 
 async def _ics_feed(request: web.Request) -> web.Response:
