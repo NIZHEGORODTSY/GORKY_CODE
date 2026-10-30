@@ -2,6 +2,8 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 
 from app.assistant.service import Assistant
 from app.bot.handlers import router
@@ -33,8 +35,8 @@ async def main() -> None:
     )
     tts = EdgeTTS(settings.tts_voice)
 
-    bot = Bot(settings.bot_token)
-    dp = Dispatcher(assistant=assistant, stt=stt, tts=tts)
+    bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher(assistant=assistant, stt=stt, tts=tts, webapp_url=settings.webapp_url)
     dp.include_router(router)
     notifier = asyncio.create_task(run_notifier(bot, session_factory))
     try:

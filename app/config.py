@@ -16,6 +16,9 @@ class Settings(BaseSettings):
 
     tts_voice: str = "ru-RU-SvetlanaNeural"
 
+    # Публичный HTTPS-адрес Mini App (календарь); пусто — кнопка календаря не показывается
+    webapp_url: str = ""
+
     sber_ca_bundle: str = ""
 
     default_timezone: str = "Europe/Moscow"

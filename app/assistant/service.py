@@ -1,5 +1,6 @@
 import json
 import logging
+from html import escape
 from collections import defaultdict, deque
 from collections.abc import Callable
 from datetime import datetime
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.assistant.actions import ActionResult, Actions
 from app.assistant.prompt import build_system_prompt
+from app.core.formatting import plain
 from app.core.models import Event
 from app.llm.base import ChatMessage, LLMClient, ToolCall
 from app.llm.tools import TOOLS
@@ -73,12 +75,14 @@ class Assistant:
         # Записи из последнего ответа — для «перенеси её», «удали первую»
         self._recent: dict[int, list[Event]] = {}
 
-    async def handle(self, user_id: int, text: str) -> str:
+    async def _now(self, user_id: int) -> tuple[datetime, str]:
         async with self._session_factory() as session, session.begin():
             tz_name = await UserRepository(session).ensure(user_id, self._default_timezone)
-        tz = ZoneInfo(tz_name)
-        now = self._clock(tz)
+        return self._clock(ZoneInfo(tz_name)), tz_name
 
+    async def handle(self, user_id: int, text: str) -> ActionResult:
+        """Свободный текст пользователя -> ответ (Telegram-HTML) и записи, о которых он."""
+        now, tz_name = await self._now(user_id)
         history = self._history[user_id]
         user_msg = ChatMessage("user", text)
         system = build_system_prompt(now, tz_name, self._recent.get(user_id))
@@ -88,18 +92,28 @@ class Assistant:
             reply = await self._llm.complete(messages, TOOLS)
         except Exception:
             log.exception("LLM call failed")
-            return LLM_ERROR
+            return ActionResult(LLM_ERROR)
 
         if reply.tool_call:
             log.info("tool call %s %s", reply.tool_call.name, reply.tool_call.arguments)
             async with self._session_factory() as session, session.begin():
                 actions = Actions(EventRepository(session), user_id, now, self._matcher, self._recent.get(user_id))
                 result = await run_tool_call(self._llm, messages, reply.tool_call, actions)
-            answer = result.text
-            if result.events:
-                self._recent[user_id] = result.events[:RECENT_SIZE]
+            self._remember(user_id, result)
         else:
-            answer = reply.text.strip() or "Не понял запрос. Попробуй сформулировать иначе."
+            result = ActionResult(escape(reply.text.strip()) or "Не понял запрос. Попробуй сформулировать иначе.")
 
-        history.extend([user_msg, ChatMessage("assistant", answer)])
-        return answer
+        history.extend([user_msg, ChatMessage("assistant", plain(result.text))])
+        return result
+
+    async def run_action(self, user_id: int, call: ToolCall) -> ActionResult:
+        """Действие без LLM — для команд меню и кнопок под сообщениями."""
+        now, _ = await self._now(user_id)
+        async with self._session_factory() as session, session.begin():
+            result = await Actions(EventRepository(session), user_id, now, recent=self._recent.get(user_id)).run(call)
+        self._remember(user_id, result)
+        return result
+
+    def _remember(self, user_id: int, result: ActionResult) -> None:
+        if result.events:
+            self._recent[user_id] = result.events[:RECENT_SIZE]

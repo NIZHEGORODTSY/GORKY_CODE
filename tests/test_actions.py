@@ -2,6 +2,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.assistant.actions import Actions
+from app.core.formatting import plain
 from app.core.models import EventKind
 from app.llm.base import ToolCall
 from tests.fakes import FakeEventRepository, meeting
@@ -69,7 +70,7 @@ async def test_list_today_filters_by_kind():
     res = await actions.run(ToolCall("list_events", {"period": "today", "kind": "meeting"}))
     assert "16:00 — Созвон" in res.text
     res = await actions.run(ToolCall("list_events", {"period": "today", "kind": "task"}))
-    assert res.text == "На сегодня задач нет."
+    assert plain(res.text) == "🌿 На сегодня задач нет."
 
 
 async def test_search():
@@ -99,7 +100,7 @@ async def test_conflicting_meeting_warns():
     res = await actions.run(ToolCall("create_event", {
         "kind": "meeting", "title": "Встреча с Иваном", "day": "tomorrow", "time": "15:30"}))
     assert len(repo.events) == 2
-    assert "пересекается с «Созвон с командой» в 15:00" in res.text
+    assert "Пересекается с «Созвон с командой» в 15:00" in plain(res.text)
 
 
 async def test_reschedule_keeps_time_and_duration():
@@ -109,7 +110,7 @@ async def test_reschedule_keeps_time_and_duration():
     moved = await repo.get(USER, e.id)
     assert moved.starts_at == datetime(2026, 11, 2, 15, tzinfo=MSK)
     assert moved.ends_at == datetime(2026, 11, 2, 16, tzinfo=MSK)
-    assert "Перенёс «Встреча с Иваном»" in res.text
+    assert "Перенёс «Встреча с Иваном»" in plain(res.text)
 
 
 async def test_complete_and_delete_by_query():
@@ -126,7 +127,7 @@ async def test_ambiguous_target_asks_with_options():
     await repo.add(meeting(USER, "Встреча с Иваном", datetime(2026, 10, 31, 15, tzinfo=MSK)))
     await repo.add(meeting(USER, "Обед с Иваном", datetime(2026, 11, 2, 13, tzinfo=MSK)))
     res = await actions.run(ToolCall("delete_event", {"query": "Иван"}))
-    assert res.text.startswith("Нашёл несколько") and len(res.events) == 2
+    assert "Нашёл несколько" in res.text and len(res.events) == 2
 
 
 class ScriptedLLM:
@@ -146,4 +147,4 @@ async def test_search_then_reschedule_follow_up():
     llm = ScriptedLLM(LLMReply(tool_call=ToolCall("update_event", {"event_id": e.id, "time": "17:00"})))
     res = await run_tool_call(llm, [], ToolCall("search_events", {"query": "Иван"}), actions)
     assert (await repo.get(USER, e.id)).starts_at == datetime(2026, 10, 31, 17, tzinfo=MSK)
-    assert res.text.startswith("Перенёс")
+    assert "Перенёс" in res.text
