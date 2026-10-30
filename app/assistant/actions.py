@@ -25,6 +25,7 @@ PERIOD_LABEL = {
     Period.NEXT_WEEK: "следующей неделе",
 }
 DEFAULT_MEETING_MINUTES = 60
+MAX_MEETING_LEAD = 24 * 60
 
 
 class Clarification(Exception):
@@ -265,8 +266,15 @@ class Actions:
         if args.get("voice_replies") is not None:
             changes["voice_replies"] = bool(args["voice_replies"])
             lines.append("🔊 Голосовые ответы включены." if changes["voice_replies"] else "🔇 Голосовые ответы выключены.")
+        lead = args.get("meeting_lead_minutes")
+        if lead is not None:
+            minutes = max(0, min(int(lead), MAX_MEETING_LEAD))
+            changes["meeting_lead_minutes"] = minutes
+            lines.append(f"🔔 О встречах предупрежу за {minutes} мин." if minutes else "🔔 О встречах напомню в момент начала.")
         if not changes:
-            raise Clarification("⚙️ Что настроить: часовой пояс, утреннюю сводку или голосовые ответы?")
+            raise Clarification(
+                "⚙️ Что настроить: часовой пояс, утреннюю сводку, голосовые ответы или за сколько минут напоминать о встречах?"
+            )
         await self._users.update(self._user_id, **changes)
         return ActionResult("\n".join(lines))
 

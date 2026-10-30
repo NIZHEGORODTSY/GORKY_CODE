@@ -39,3 +39,4 @@ class UserSettings:
     voice_replies: bool = True
     digest_time: time | None = None  # утренняя сводка; None — выключена
     ics_token: str | None = None
+    meeting_lead_minutes: int = 15  # за сколько минут предупреждать о встрече

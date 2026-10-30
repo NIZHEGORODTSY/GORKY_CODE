@@ -164,7 +164,12 @@ async def on_item_action(callback: CallbackQuery, assistant: Assistant, public_b
 @router.callback_query(F.data.startswith("set:"))
 async def on_settings_button(callback: CallbackQuery, assistant: Assistant, public_base: str) -> None:
     _, key, value = callback.data.split(":", 2)
-    args = {"voice": {"voice_replies": value == "1"}, "digest": {"digest_time": value}, "tz": {"timezone": value}}[key]
+    args = {
+        "voice": {"voice_replies": value == "1"},
+        "digest": {"digest_time": value},
+        "tz": {"timezone": value},
+        "lead": {"meeting_lead_minutes": int(value) if value.isdigit() else 15},
+    }[key]
     result = await assistant.run_action(callback.from_user.id, ToolCall("update_settings", args))
     await callback.answer(_head(result))
     await _edit_panel(callback, *await _render(assistant, callback.from_user.id, "settings", None, public_base))
@@ -355,8 +360,10 @@ def _settings_text(s) -> str:
         "⚙️ <b>Настройки</b>\n\n"
         f"🌍 Часовой пояс: {escape(TZ_LABEL.get(s.timezone, s.timezone))} (сейчас {now:%H:%M})\n"
         f"☀️ Утренняя сводка: {digest}\n"
+        f"🔔 О встречах предупреждаю: за {s.meeting_lead_minutes} мин\n"
         f"🔊 Голосовые ответы: {'включены' if s.voice_replies else 'выключены'}\n\n"
-        "Меняй кнопками ниже или голосом: «я в Новосибирске», «присылай план в 8»."
+        "Меняй кнопками ниже или голосом: «я в Новосибирске», «присылай план в 8», "
+        "«напоминай о встречах за 30 минут»."
     )
 
 

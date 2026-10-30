@@ -19,7 +19,6 @@ from app.storage.repository import EventRepository, UserRepository
 log = logging.getLogger(__name__)
 
 POLL_SECONDS = 30
-MEETING_LEAD = timedelta(minutes=15)
 MAX_AGE = timedelta(hours=6)
 DIGEST_WINDOW = timedelta(hours=3)  # после простоя бота не шлём сводку поздно вечером
 
@@ -47,7 +46,7 @@ async def _tick(bot: Bot, session_factory: async_sessionmaker) -> None:
     now = datetime.now(timezone.utc)
     async with session_factory() as session, session.begin():
         repo = EventRepository(session)
-        for event in await repo.due_notifications(now, MEETING_LEAD, MAX_AGE):
+        for event in await repo.due_notifications(now, MAX_AGE):
             try:
                 markup = reminder_actions(event.id) if event.kind == EventKind.REMINDER else None
                 await bot.send_message(event.user_id, notification_text(event, now), reply_markup=markup)

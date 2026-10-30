@@ -63,3 +63,11 @@ async def test_settings():
     assert "Новосиб" not in res.text and "08:00" in res.text
     bad = await actions.run(ToolCall("update_settings", {"timezone": "Mars/Olympus"}))
     assert "Не узнал" in bad.text
+
+
+async def test_meeting_lead_setting():
+    users = FakeUserRepository()
+    actions = Actions(FakeEventRepository(), USER, NOW, users=users)
+    res = await actions.run(ToolCall("update_settings", {"meeting_lead_minutes": 30}))
+    assert users.values == {"meeting_lead_minutes": 30}
+    assert "за 30 мин" in res.text

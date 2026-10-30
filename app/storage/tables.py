@@ -1,6 +1,6 @@
 from datetime import date, datetime, time
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, String, Text, Time, func, true
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, Time, func, true
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.core.models import EventKind, EventStatus
@@ -20,6 +20,7 @@ class UserRow(Base):
     digest_time: Mapped[time | None] = mapped_column(Time)
     last_digest_on: Mapped[date | None] = mapped_column(Date)
     ics_token: Mapped[str | None] = mapped_column(String(64), unique=True)
+    meeting_lead_minutes: Mapped[int] = mapped_column(Integer, server_default="15")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

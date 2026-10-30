@@ -56,6 +56,7 @@ def _settings(row: UserRow) -> UserSettings:
         voice_replies=row.voice_replies,
         digest_time=row.digest_time,
         ics_token=row.ics_token,
+        meeting_lead_minutes=row.meeting_lead_minutes,
     )
 
 
@@ -165,17 +166,18 @@ class EventRepository:
         rows = await self._s.scalars(q.order_by(EventRow.created_at.desc()).limit(limit))
         return [r.to_domain() for r in rows]
 
-    async def due_notifications(
-        self, now: datetime, meeting_lead: timedelta, max_age: timedelta
-    ) -> list[Event]:
-        """Напоминания, время которых наступило, и встречи, до которых осталось meeting_lead.
+    async def due_notifications(self, now: datetime, max_age: timedelta) -> list[Event]:
+        """Напоминания, время которых наступило, и встречи, до которых осталось столько минут,
+        сколько выбрал пользователь (users.meeting_lead_minutes).
 
         Старше max_age не берём: после долгого простоя бот не должен засыпать пользователя.
         """
+        lead = func.make_interval(0, 0, 0, 0, 0, UserRow.meeting_lead_minutes)
         is_reminder = and_(EventRow.kind == EventKind.REMINDER.value, EventRow.starts_at <= now)
-        is_meeting = and_(EventRow.kind == EventKind.MEETING.value, EventRow.starts_at <= now + meeting_lead)
+        is_meeting = and_(EventRow.kind == EventKind.MEETING.value, EventRow.starts_at <= now + lead)
         rows = await self._s.scalars(
             select(EventRow)
+            .join(UserRow, UserRow.id == EventRow.user_id)
             .where(
                 EventRow.status == EventStatus.OPEN.value,
                 EventRow.notified_at.is_(None),

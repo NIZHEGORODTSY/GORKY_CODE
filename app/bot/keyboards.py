@@ -8,7 +8,7 @@ callback_data (≤ 64 байт):
     it:<id>:<d|w|t>:<YYYY-MM-DD>           открыть карточку записи из списка
     ls:<id>:<d|w|t>:<YYYY-MM-DD>           карточка: выполнено -> вернуться к списку
     lx:<id>:<d|w|t>:<YYYY-MM-DD>           карточка: удалить -> вернуться к списку
-    set:<voice|digest|tz>:<значение>       изменить настройку
+    set:<voice|digest|tz|lead>:<значение>  изменить настройку
     m:open                                 открыть панель внизу чата (из ответа бота)
     demo:<load|clear>                      загрузить / убрать демо-данные из задания
     ev:<done|del|ics>:<id>                 действие с записью из ответа бота
@@ -34,6 +34,7 @@ BTN_CALENDAR = "🗂 Календарь"
 
 MAX_LIST_BUTTONS = 8
 DIGEST_OPTIONS = ["07:00", "08:00", "09:00", "10:00"]
+LEAD_OPTIONS = [5, 15, 30, 60]
 # Часовые пояса России — самые частые варианты; остальные можно назвать голосом
 TIMEZONES = [
     ("Калининград", "Europe/Kaliningrad"), ("Москва", "Europe/Moscow"), ("Самара", "Europe/Samara"),
@@ -134,6 +135,7 @@ def settings_actions(s: UserSettings) -> InlineKeyboardMarkup:
     current = f"{s.digest_time:%H:%M}" if s.digest_time else None
     rows.append([btn(("☀️ " if opt == current else "") + opt, f"set:digest:{opt}") for opt in DIGEST_OPTIONS])
     rows.append([btn("🔕 Без утренней сводки" if current else "✓ Без утренней сводки", "set:digest:off")])
+    rows.append([btn(("🔔 " if m == s.meeting_lead_minutes else "") + f"за {m} мин", f"set:lead:{m}") for m in LEAD_OPTIONS])
     rows.append([btn(f"🌍 Часовой пояс: {TZ_LABEL.get(s.timezone, s.timezone)}", "v:tz")])
     rows.append(BACK_TO_MENU)
     return InlineKeyboardMarkup(inline_keyboard=rows)
