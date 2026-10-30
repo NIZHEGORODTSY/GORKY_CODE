@@ -20,7 +20,7 @@
 
 - [2026-10-30] Канал координации между агентами — этот файл + GitHub Issues/PR.
 - [2026-10-30] Telegram-бот (aiogram 3) вместо веб-страницы.
-- [2026-10-30] LLM — GigaChat за интерфейсом `LLMClient`; голос — SaluteSpeech.
+- [2026-10-30] LLM — GigaChat за интерфейсом `LLMClient`. Голос: STT — GigaChat-3-Pro (SaluteSpeech для физлиц закрыт), TTS — edge-tts.
 - [2026-10-30] PostgreSQL 16 + pgvector, Alembic; деплой на свой VPS через docker compose.
 - [2026-10-30] На голосовое бот отвечает текстом + голосом (TTS); на текст — текстом.
 - [2026-10-30] Бот сам присылает напоминания в назначенное время.
