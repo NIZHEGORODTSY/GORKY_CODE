@@ -34,9 +34,10 @@ class ActionResult:
 
 
 class Actions:
-    def __init__(self, repo, user_id: int, now: datetime):
-        """`now` — aware datetime в часовом поясе пользователя."""
+    def __init__(self, repo, user_id: int, now: datetime, matcher=None):
+        """`now` — aware datetime в часовом поясе пользователя; `matcher` — поиск по смыслу."""
         self._repo = repo
+        self._matcher = matcher
         self._user_id = user_id
         self._now = now
         self._tz = now.tzinfo
@@ -138,7 +139,11 @@ class Actions:
         query = (args.get("query") or "").strip()
         if not query:
             raise Clarification("Что поискать?")
-        events = await self._repo.search_text(self._user_id, query, kinds=KIND_FILTER.get(args.get("kind")))
+        kinds = KIND_FILTER.get(args.get("kind"))
+        events = await self._repo.search_text(self._user_id, query, kinds=kinds)
+        if not events and self._matcher is not None:
+            candidates = await self._repo.list_recent(self._user_id, kinds=kinds)
+            events = await self._matcher.match(query, candidates)
         if not events:
             return ActionResult(f"Не нашёл записей про «{query}».")
         return ActionResult(fmt_found(events, self._tz, self._today), [e.id for e in events])

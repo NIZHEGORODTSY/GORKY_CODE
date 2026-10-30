@@ -26,6 +26,9 @@ class FakeEventRepository:
         ]
         return sorted(found, key=lambda e: e.starts_at)
 
+    async def list_recent(self, user_id, kinds=None, limit=200):
+        return [e for e in reversed(self.events) if e.user_id == user_id and (not kinds or e.kind in kinds)][:limit]
+
     async def search_text(self, user_id, query, kinds=None, limit=5):
         words = [w[:5] for w in query.lower().split()]
         return [

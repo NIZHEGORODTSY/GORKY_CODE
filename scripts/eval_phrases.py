@@ -20,6 +20,8 @@ from app.config import get_settings
 from app.llm.base import ChatMessage, LLMReply
 from app.llm.gigachat_client import GigaChatClient
 from app.llm.tools import TOOLS
+from app.search.llm_matcher import LLMEventMatcher
+from app.core.models import Event, EventKind
 from tests.fakes import FakeEventRepository
 
 TZ = "Europe/Moscow"
@@ -47,6 +49,20 @@ CASES = [
     ("Найди задачу про презентацию", "search_events", {}),
     ("Когда у меня была встреча с Иваном?", "search_events", {}),
     ("Я когда-то ставил задачу по договору, найди ее", "search_events", {}),
+]
+
+
+# Поиск по смыслу: (запрос, какие записи должны найтись) среди SEARCH_POOL
+SEARCH_POOL = [
+    "Встреча с Иваном", "Подготовить слайды к защите проекта", "Подписать договор аренды",
+    "Купить билеты в Казань", "Созвон с дизайнером", "Оплатить интернет",
+]
+SEARCH_CASES = [
+    ("Ваня", {"Встреча с Иваном"}),
+    ("презентация", {"Подготовить слайды к защите проекта"}),
+    ("контракт", {"Подписать договор аренды"}),
+    ("поездка", {"Купить билеты в Казань"}),
+    ("стоматолог", set()),
 ]
 
 
@@ -90,9 +106,23 @@ async def run(model: str) -> int:
             ok += error is None
             args = json.dumps(reply.tool_call.arguments, ensure_ascii=False) if reply.tool_call else ""
             print(f"{'OK ' if error is None else 'ERR'} {phrase:<50} {error or ''}  {args if error else ''}")
+        ok += await run_search(llm)
     finally:
         await llm.close()
-    print(f"== {model}: {ok}/{len(CASES)}, {time.monotonic() - started:.0f} с")
+    total = len(CASES) + len(SEARCH_CASES)
+    print(f"== {model}: {ok}/{total}, {time.monotonic() - started:.0f} с")
+    return ok
+
+
+async def run_search(llm) -> int:
+    matcher = LLMEventMatcher(llm)
+    pool = [Event(user_id=1, kind=EventKind.TASK, title=t, id=i) for i, t in enumerate(SEARCH_POOL, 1)]
+    ok = 0
+    for query, expected in SEARCH_CASES:
+        found = {e.title for e in await matcher.match(query, pool)}
+        good = found == expected
+        ok += good
+        print(f"{'OK ' if good else 'ERR'} поиск «{query}» -> {sorted(found) or '—'}")
     return ok
 
 
