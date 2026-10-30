@@ -18,6 +18,7 @@ DESCRIPTION = (
 )
 
 COMMANDS = [
+    BotCommand(command="menu", description="🏠 Меню"),
     BotCommand(command="today", description="📅 Что у меня сегодня"),
     BotCommand(command="tomorrow", description="➡️ Планы на завтра"),
     BotCommand(command="week", description="🗓 План на неделю"),

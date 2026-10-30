@@ -1,3 +1,10 @@
+"""Telegram-интерфейс.
+
+Разделы (сегодня, неделя, задачи, настройки…) живут в одном сообщении-«панели»: навигация
+перерисовывает его на месте, а не присылает новое. Команды и кнопка «🏠 Меню» удаляют
+сообщение пользователя и переносят панель вниз чата. Свободный текст и голос — обычный диалог.
+"""
+
 import logging
 from datetime import date, datetime, timedelta
 from html import escape
@@ -12,18 +19,14 @@ from aiogram.utils.chat_action import ChatActionSender
 from app.assistant.actions import ActionResult
 from app.assistant.service import Assistant
 from app.bot.keyboards import (
-    BTN_EXPORT,
-    BTN_HELP,
-    BTN_SETTINGS,
-    BTN_TASKS,
-    BTN_TODAY,
-    BTN_TOMORROW,
-    BTN_WEEK,
+    BTN_MENU,
     TZ_LABEL,
+    back_only,
     event_actions,
     export_actions,
+    home_actions,
     list_actions,
-    main_menu,
+    reply_menu,
     settings_actions,
     timezone_actions,
 )
@@ -35,8 +38,11 @@ from app.speech.base import SpeechToText, TextToSpeech
 log = logging.getLogger(__name__)
 router = Router()
 
+# Последняя панель в каждом чате (в памяти процесса: после рестарта старая панель просто останется в истории)
+_panels: dict[int, int] = {}
+
 HELP = (
-    "👋 <b>Я голосовой планировщик.</b>\n"
+    "❓ <b>Что я умею</b>\n"
     "Пиши или отправляй голосовые — как другу, без команд.\n\n"
     "<b>Создать</b>\n"
     "⏰ «Напомни завтра в 10 позвонить Ивану»\n"
@@ -49,85 +55,70 @@ HELP = (
     "↪️ «Перенеси её на пятницу» · ✏️ «Переименуй в …» · ✅ «Я купил билеты» · 🗑 «Встреча отменилась»\n\n"
     "<b>Настроить</b>\n"
     "🌍 «Я в Новосибирске» · ☀️ «Присылай план по утрам в 8»\n\n"
-    "Напоминания пришлю сам, о встречах предупрежу за 15 минут. "
-    "Планы можно добавить в календарь телефона — кнопка «📆 В календарь»."
+    "Напоминания пришлю сам, о встречах предупрежу за 15 минут."
 )
 
+COMMAND_VIEWS = {"menu": "home", "today": "d", "tomorrow": "d+1", "week": "w", "tasks": "t",
+                 "calendar": "export", "settings": "settings", "help": "help"}
 
-# --- справка, списки, задачи ---------------------------------------------------
+
+# --- вход в панель -------------------------------------------------------------
 
 @router.message(CommandStart())
-@router.message(Command("help"))
-@router.message(F.text == BTN_HELP)
-async def on_help(message: Message, webapp_url: str) -> None:
-    await message.answer(HELP, reply_markup=main_menu(webapp_url))
+async def on_start(message: Message, bot: Bot, assistant: Assistant, webapp_url: str, public_base: str) -> None:
+    await message.answer(
+        "👋 Привет! Я голосовой планировщик. Напиши или скажи, что запланировать, — "
+        "а все разделы в меню ниже.",
+        reply_markup=reply_menu(webapp_url),
+    )
+    await _show_panel(bot, message.chat.id, *await _render(assistant, message.from_user.id, "home", None, public_base))
 
 
-@router.message(Command("today"))
-@router.message(F.text == BTN_TODAY)
-async def on_today(message: Message, assistant: Assistant) -> None:
+@router.message(F.text == BTN_MENU)
+@router.message(Command(*COMMAND_VIEWS))
+async def on_panel_command(message: Message, bot: Bot, assistant: Assistant, public_base: str) -> None:
+    view = "home" if message.text == BTN_MENU else COMMAND_VIEWS[message.text.lstrip("/").split("@")[0]]
+    await _delete(message)
     today = await _local_today(assistant, message.from_user.id)
-    text, markup = await _render_view(assistant, message.from_user.id, "d", today)
-    await message.answer(text, reply_markup=markup)
-
-
-@router.message(Command("tomorrow"))
-@router.message(F.text == BTN_TOMORROW)
-async def on_tomorrow(message: Message, assistant: Assistant) -> None:
-    today = await _local_today(assistant, message.from_user.id)
-    text, markup = await _render_view(assistant, message.from_user.id, "d", today + timedelta(days=1))
-    await message.answer(text, reply_markup=markup)
-
-
-@router.message(Command("week"))
-@router.message(F.text == BTN_WEEK)
-async def on_week(message: Message, assistant: Assistant) -> None:
-    today = await _local_today(assistant, message.from_user.id)
-    text, markup = await _render_view(assistant, message.from_user.id, "w", today)
-    await message.answer(text, reply_markup=markup)
-
-
-@router.message(Command("tasks"))
-@router.message(F.text == BTN_TASKS)
-async def on_tasks(message: Message, assistant: Assistant) -> None:
-    text, markup = await _render_view(assistant, message.from_user.id, "t", date.today())
-    await message.answer(text, reply_markup=markup)
-
-
-# --- календарь телефона и настройки ------------------------------------------------
-
-@router.message(Command("calendar"))
-@router.message(F.text == BTN_EXPORT)
-async def on_export(message: Message, assistant: Assistant, public_base: str) -> None:
-    ics, token = await assistant.export_ics(message.from_user.id)
-    feed = f"{public_base}/ics/{token}.ics" if public_base else ""
-    lines = ["📆 <b>Планы в календаре телефона</b>", ""]
-    if feed:
-        lines += [
-            "Ссылка-подписка — календарь будет обновляться сам:",
-            f"<code>{feed}</code>",
-            "",
-            "• <b>Android / Google:</b> кнопка ниже → «Добавить»",
-            "• <b>iPhone:</b> Настройки → Календарь → Учётные записи → Добавить → Другое → "
-            "Подписной календарь → вставь ссылку",
-            "• <b>Яндекс Календарь:</b> Добавить календарь → Подписаться → вставь ссылку",
-            "",
-            "А ещё прикрепляю файл — открой его, чтобы добавить планы разово.",
-        ]
+    if view.startswith("d"):
+        view, anchor = "d", today + timedelta(days=1 if view == "d+1" else 0)
     else:
-        lines += [
-            "Открой файл ниже — iPhone и Android предложат добавить записи в календарь.",
-            "Ссылка-подписка с автообновлением появится, когда бот будет работать на сервере.",
-        ]
-    await message.answer("\n".join(lines), reply_markup=export_actions(feed), disable_web_page_preview=True)
-    await message.answer_document(BufferedInputFile(ics.encode(), filename="gorky-plans.ics"))
+        anchor = today
+    await _show_panel(bot, message.chat.id, *await _render(assistant, message.from_user.id, view, anchor, public_base))
 
 
-@router.message(Command("settings"))
-@router.message(F.text == BTN_SETTINGS)
-async def on_settings(message: Message, assistant: Assistant) -> None:
-    s = await assistant.settings(message.from_user.id)
-    await message.answer(_settings_text(s), reply_markup=settings_actions(s))
+# --- навигация по панели (на месте) ---------------------------------------------
+
+@router.callback_query(F.data.startswith("v:"))
+async def on_view(callback: CallbackQuery, assistant: Assistant, public_base: str) -> None:
+    _, view, *rest = callback.data.split(":")
+    anchor = date.fromisoformat(rest[0]) if rest else None
+    await callback.answer()
+    await _edit_panel(callback, *await _render(assistant, callback.from_user.id, view, anchor, public_base))
+
+
+@router.callback_query(F.data.startswith("ls:"))
+async def on_list_done(callback: CallbackQuery, assistant: Assistant, public_base: str) -> None:
+    _, event_id, view, anchor = callback.data.split(":")
+    result = await assistant.run_action(callback.from_user.id, ToolCall("complete_event", {"event_id": int(event_id)}))
+    await callback.answer(_head(result))
+    await _edit_panel(callback, *await _render(assistant, callback.from_user.id, view, date.fromisoformat(anchor), public_base))
+
+
+@router.callback_query(F.data.startswith("set:"))
+async def on_settings_button(callback: CallbackQuery, assistant: Assistant, public_base: str) -> None:
+    _, key, value = callback.data.split(":", 2)
+    args = {"voice": {"voice_replies": value == "1"}, "digest": {"digest_time": value}, "tz": {"timezone": value}}[key]
+    result = await assistant.run_action(callback.from_user.id, ToolCall("update_settings", args))
+    await callback.answer(_head(result))
+    await _edit_panel(callback, *await _render(assistant, callback.from_user.id, "settings", None, public_base))
+
+
+@router.callback_query(F.data == "x:ics")
+async def on_ics_file(callback: CallbackQuery, assistant: Assistant) -> None:
+    ics, _ = await assistant.export_ics(callback.from_user.id)
+    await callback.answer("Открой файл — записи добавятся в календарь")
+    await callback.message.answer_document(BufferedInputFile(ics.encode(), filename="gorky-plans.ics"))
 
 
 # --- свободный текст и голос ---------------------------------------------------
@@ -170,7 +161,7 @@ async def on_voice(
         log.exception("TTS failed")
 
 
-# --- кнопки под сообщениями ------------------------------------------------------
+# --- кнопки под ответами диалога ---------------------------------------------------
 
 @router.callback_query(F.data.startswith("ev:"))
 async def on_event_button(callback: CallbackQuery, assistant: Assistant) -> None:
@@ -199,65 +190,78 @@ async def on_event_button(callback: CallbackQuery, assistant: Assistant) -> None
     )
 
 
-@router.callback_query(F.data.startswith("ls:"))
-async def on_list_done(callback: CallbackQuery, assistant: Assistant) -> None:
-    _, event_id, view, anchor = callback.data.split(":")
-    result = await assistant.run_action(callback.from_user.id, ToolCall("complete_event", {"event_id": int(event_id)}))
-    await callback.answer(_plain_head(result))
-    text, markup = await _render_view(assistant, callback.from_user.id, view, date.fromisoformat(anchor))
-    await _edit(callback, text, markup)
+# --- разделы панели --------------------------------------------------------------
 
-
-@router.callback_query(F.data.startswith("nav:"))
-async def on_nav(callback: CallbackQuery, assistant: Assistant) -> None:
-    _, view, anchor = callback.data.split(":")
-    text, markup = await _render_view(assistant, callback.from_user.id, view, date.fromisoformat(anchor))
-    await callback.answer()
-    await _edit(callback, text, markup)
-
-
-@router.callback_query(F.data.startswith("set:"))
-async def on_settings_button(callback: CallbackQuery, assistant: Assistant) -> None:
-    _, key, *value = callback.data.split(":", 2)
-    if key == "tzmenu":
-        await callback.answer()
-        await callback.message.edit_reply_markup(reply_markup=timezone_actions())
-        return
-    args = {
-        "voice": lambda v: {"voice_replies": v == "1"},
-        "digest": lambda v: {"digest_time": v},
-        "tz": lambda v: {"timezone": v},
-    }[key](value[0])
-    result = await assistant.run_action(callback.from_user.id, ToolCall("update_settings", args))
-    await callback.answer(_plain_head(result))
-    s = await assistant.settings(callback.from_user.id)
-    await _edit(callback, _settings_text(s), settings_actions(s))
-
-
-# --- вспомогательное -------------------------------------------------------------
-
-async def _render_view(assistant: Assistant, user_id: int, view: str, anchor: date):
-    """Список дня (d), недели (w) или всех задач (t) + кнопки к нему."""
+async def _render(assistant: Assistant, user_id: int, view: str, anchor: date | None, public_base: str):
+    """(текст, клавиатура) раздела панели."""
+    if view == "home":
+        return await _home(assistant, user_id)
+    if view == "help":
+        return HELP, back_only()
+    if view == "settings":
+        s = await assistant.settings(user_id)
+        return _settings_text(s), settings_actions(s)
+    if view == "tz":
+        return "🌍 <b>Часовой пояс</b>\n\nВыбери город или просто скажи: «я в Хабаровске».", timezone_actions()
+    if view == "export":
+        _, token = await assistant.export_ics(user_id)
+        feed = f"{public_base}/ics/{token}.ics" if public_base else ""
+        return _export_text(feed), export_actions(feed)
     if view == "t":
         result = await assistant.tasks_overview(user_id)
+        return result.text, list_actions(result.events, "t", anchor or date.today())
+
+    anchor = anchor or await _local_today(assistant, user_id)
+    if view == "w":
+        anchor -= timedelta(days=anchor.weekday())
+        span = {"date_from": anchor.isoformat(), "date_to": (anchor + timedelta(days=6)).isoformat()}
     else:
-        if view == "w":
-            anchor = anchor - timedelta(days=anchor.weekday())
-            span = {"date_from": anchor.isoformat(), "date_to": (anchor + timedelta(days=6)).isoformat()}
-        else:
-            span = {"date_from": anchor.isoformat(), "date_to": anchor.isoformat()}
-        result = await assistant.run_action(user_id, ToolCall("list_events", {"period": "custom", **span}))
-    return _with_title(result, view, anchor), list_actions(result.events, view, anchor)
+        span = {"date_from": anchor.isoformat(), "date_to": anchor.isoformat()}
+    result = await assistant.run_action(user_id, ToolCall("list_events", {"period": "custom", **span}))
+    return _list_title(result, view, anchor), list_actions(result.events, view, anchor)
 
 
-def _with_title(result: ActionResult, view: str, anchor: date) -> str:
+async def _home(assistant: Assistant, user_id: int):
+    today = await _local_today(assistant, user_id)
+    result = await assistant.run_action(
+        user_id, ToolCall("list_events", {"period": "custom", "date_from": today.isoformat(), "date_to": today.isoformat()})
+    )
+    count = len(result.events)
+    plans = f"на сегодня {count} {_plural(count, 'дело', 'дела', 'дел')}" if count else "на сегодня планов нет"
+    text = (
+        f"🏠 <b>{_day_title(today)}</b> — {plans}\n\n"
+        "Напиши или скажи, что запланировать, или выбери раздел 👇"
+    )
+    return text, home_actions(today)
+
+
+def _list_title(result: ActionResult, view: str, anchor: date) -> str:
     if view == "w":
         end = anchor + timedelta(days=6)
         return f"🗓 <b>Неделя {anchor:%d.%m} — {end:%d.%m}</b>\n\n{result.text}"
-    if view == "d" and not result.events:
-        day = f"{WEEKDAYS[anchor.weekday()].capitalize()}, {anchor.day} {MONTHS_GEN[anchor.month - 1]}"
-        return f"<b>{day}</b>\n\n🌿 Ничего не запланировано."
+    if not result.events:
+        return f"<b>{_day_title(anchor)}</b>\n\n🌿 Ничего не запланировано."
     return result.text
+
+
+def _export_text(feed: str) -> str:
+    lines = ["📆 <b>Планы в календаре телефона</b>", ""]
+    if feed:
+        lines += [
+            "Ссылка-подписка — календарь будет обновляться сам:",
+            f"<code>{feed}</code>",
+            "",
+            "• <b>Android / Google:</b> кнопка ниже",
+            "• <b>iPhone:</b> Настройки → Календарь → Учётные записи → Добавить → Другое → "
+            "Подписной календарь → вставь ссылку",
+            "• <b>Яндекс Календарь:</b> Добавить календарь → Подписаться → вставь ссылку",
+        ]
+    else:
+        lines += [
+            "Скачай файл и открой его — iPhone и Android предложат добавить записи в календарь.",
+            "Ссылка-подписка с автообновлением появится, когда бот будет работать на сервере.",
+        ]
+    return "\n".join(lines)
 
 
 def _settings_text(s) -> str:
@@ -272,18 +276,52 @@ def _settings_text(s) -> str:
     )
 
 
+# --- вспомогательное ---------------------------------------------------------------
+
+async def _show_panel(bot: Bot, chat_id: int, text: str, markup) -> None:
+    """Новая панель внизу чата, старая удаляется."""
+    old = _panels.pop(chat_id, None)
+    if old is not None:
+        try:
+            await bot.delete_message(chat_id, old)
+        except TelegramBadRequest:
+            pass  # уже удалена или старше 48 часов
+    sent = await bot.send_message(chat_id, text, reply_markup=markup, disable_web_page_preview=True)
+    _panels[chat_id] = sent.message_id
+
+
+async def _edit_panel(callback: CallbackQuery, text: str, markup) -> None:
+    _panels[callback.message.chat.id] = callback.message.message_id
+    try:
+        await callback.message.edit_text(text, reply_markup=markup, disable_web_page_preview=True)
+    except TelegramBadRequest:
+        # «message is not modified» — содержимое не поменялось, это нормально
+        log.debug("edit skipped", exc_info=True)
+
+
+async def _delete(message: Message) -> None:
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        pass
+
+
 async def _local_today(assistant: Assistant, user_id: int) -> date:
     s = await assistant.settings(user_id)
     return datetime.now(ZoneInfo(s.timezone)).date()
 
 
-def _plain_head(result: ActionResult) -> str:
+def _day_title(d: date) -> str:
+    return f"{WEEKDAYS[d.weekday()].capitalize()}, {d.day} {MONTHS_GEN[d.month - 1]}"
+
+
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
+def _head(result: ActionResult) -> str:
     return plain(result.text).split("\n")[0][:200]
-
-
-async def _edit(callback: CallbackQuery, text: str, markup) -> None:
-    try:
-        await callback.message.edit_text(text, reply_markup=markup)
-    except TelegramBadRequest:
-        # «message is not modified» — содержимое не поменялось, это нормально
-        log.debug("edit skipped", exc_info=True)
