@@ -25,5 +25,21 @@ services:
       db:
         condition: service_healthy
 
+  # HTTPS для Mini App. Запуск: docker compose --profile https up -d (нужен WEBAPP_DOMAIN в .env)
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - bot
+
 volumes:
   pgdata:
+  caddy_data:

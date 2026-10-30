@@ -18,6 +18,8 @@ class Settings(BaseSettings):
 
     # Публичный HTTPS-адрес Mini App (календарь); пусто — кнопка календаря не показывается
     webapp_url: str = ""
+    webapp_host: str = "0.0.0.0"
+    webapp_port: int = 8080
 
     sber_ca_bundle: str = ""
 
