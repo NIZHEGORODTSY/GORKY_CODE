@@ -91,3 +91,59 @@ async def test_search_falls_back_to_matcher():
     await repo.add(meeting(USER, "Обед у Ивана", datetime(2026, 10, 20, 12, tzinfo=MSK)))
     res = await Actions(repo, USER, NOW, FakeMatcher()).run(ToolCall("search_events", {"query": "Ваня"}))
     assert "Обед у Ивана" in res.text
+
+
+async def test_conflicting_meeting_warns():
+    repo, actions = make()
+    await repo.add(meeting(USER, "Созвон с командой", datetime(2026, 10, 31, 15, tzinfo=MSK)))
+    res = await actions.run(ToolCall("create_event", {
+        "kind": "meeting", "title": "Встреча с Иваном", "day": "tomorrow", "time": "15:30"}))
+    assert len(repo.events) == 2
+    assert "пересекается с «Созвон с командой» в 15:00" in res.text
+
+
+async def test_reschedule_keeps_time_and_duration():
+    repo, actions = make()
+    e = await repo.add(meeting(USER, "Встреча с Иваном", datetime(2026, 10, 31, 15, tzinfo=MSK)))
+    res = await actions.run(ToolCall("update_event", {"event_id": e.id, "day": "monday"}))
+    moved = await repo.get(USER, e.id)
+    assert moved.starts_at == datetime(2026, 11, 2, 15, tzinfo=MSK)
+    assert moved.ends_at == datetime(2026, 11, 2, 16, tzinfo=MSK)
+    assert "Перенёс «Встреча с Иваном»" in res.text
+
+
+async def test_complete_and_delete_by_query():
+    repo, actions = make()
+    await actions.run(ToolCall("create_event", {"kind": "task", "title": "Купить билеты", "day": "end_of_week"}))
+    await actions.run(ToolCall("create_event", {"kind": "task", "title": "Отправить отчёт", "day": "monday"}))
+    await actions.run(ToolCall("complete_event", {"query": "билеты"}))
+    await actions.run(ToolCall("delete_event", {"query": "отчёт"}))
+    assert [e.status.value for e in repo.events] == ["done", "cancelled"]
+
+
+async def test_ambiguous_target_asks_with_options():
+    repo, actions = make()
+    await repo.add(meeting(USER, "Встреча с Иваном", datetime(2026, 10, 31, 15, tzinfo=MSK)))
+    await repo.add(meeting(USER, "Обед с Иваном", datetime(2026, 11, 2, 13, tzinfo=MSK)))
+    res = await actions.run(ToolCall("delete_event", {"query": "Иван"}))
+    assert res.text.startswith("Нашёл несколько") and len(res.events) == 2
+
+
+class ScriptedLLM:
+    def __init__(self, *replies):
+        self.replies = list(replies)
+
+    async def complete(self, messages, tools):
+        return self.replies.pop(0)
+
+
+async def test_search_then_reschedule_follow_up():
+    from app.assistant.service import run_tool_call
+    from app.llm.base import LLMReply
+
+    repo, actions = make()
+    e = await repo.add(meeting(USER, "Встреча с Иваном", datetime(2026, 10, 31, 15, tzinfo=MSK)))
+    llm = ScriptedLLM(LLMReply(tool_call=ToolCall("update_event", {"event_id": e.id, "time": "17:00"})))
+    res = await run_tool_call(llm, [], ToolCall("search_events", {"query": "Иван"}), actions)
+    assert (await repo.get(USER, e.id)).starts_at == datetime(2026, 10, 31, 17, tzinfo=MSK)
+    assert res.text.startswith("Перенёс")

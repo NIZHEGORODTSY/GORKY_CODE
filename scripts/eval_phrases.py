@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from app.assistant.actions import Actions
 from app.assistant.prompt import build_system_prompt
+from app.assistant.service import run_tool_call
 from app.config import get_settings
 from app.llm.base import ChatMessage, LLMReply
 from app.llm.gigachat_client import GigaChatClient
@@ -51,6 +52,23 @@ CASES = [
     ("Я когда-то ставил задачу по договору, найди ее", "search_events", {}),
 ]
 
+
+# Изменение записей: (фраза, номера записей из CONTEXT в промпте, функция, ожидаемые аргументы)
+CONTEXT = [
+    Event(user_id=1, id=7, kind=EventKind.MEETING, title="Встреча с Иваном",
+          starts_at=datetime(2026, 10, 31, 15, tzinfo=ZoneInfo(TZ))),
+    Event(user_id=1, id=8, kind=EventKind.TASK, title="Купить билеты",
+          starts_at=datetime(2026, 11, 1, tzinfo=ZoneInfo(TZ)), all_day=True),
+]
+# ожидание: (id записи, что с ней должно стать)
+EDIT_CASES = [
+    ("А перенеси её на понедельник", [7], (7, "2026-11-02 15:00")),
+    ("Сдвинь встречу с Иваном на 17:00", [], (7, "2026-10-31 17:00")),
+    ("Я купил билеты", [8], (8, "done")),
+    ("Отметь задачу про билеты выполненной", [], (8, "done")),
+    ("Удали задачу про билеты", [], (8, "cancelled")),
+    ("Встреча с Иваном отменилась", [7], (7, "cancelled")),
+]
 
 # Поиск по смыслу: (запрос, какие записи должны найтись) среди SEARCH_POOL
 SEARCH_POOL = [
@@ -106,11 +124,36 @@ async def run(model: str) -> int:
             ok += error is None
             args = json.dumps(reply.tool_call.arguments, ensure_ascii=False) if reply.tool_call else ""
             print(f"{'OK ' if error is None else 'ERR'} {phrase:<50} {error or ''}  {args if error else ''}")
+        ok += await run_edits(llm)
         ok += await run_search(llm)
     finally:
         await llm.close()
-    total = len(CASES) + len(SEARCH_CASES)
+    total = len(CASES) + len(EDIT_CASES) + len(SEARCH_CASES)
     print(f"== {model}: {ok}/{total}, {time.monotonic() - started:.0f} с")
+    return ok
+
+
+async def run_edits(llm) -> int:
+    ok = 0
+    for phrase, ids, (event_id, want) in EDIT_CASES:
+        recent = [e for e in CONTEXT if e.id in ids]
+        system = ChatMessage("system", build_system_prompt(NOW, TZ, recent))
+        reply = await llm.complete([system, ChatMessage("user", phrase)], TOOLS)
+        call = reply.tool_call
+        repo = FakeEventRepository()
+        repo.events = list(CONTEXT)
+        error = None
+        if not call:
+            error = "ответил текстом"
+        else:
+            await run_tool_call(llm, [system, ChatMessage("user", phrase)], call, Actions(repo, 1, NOW, recent=recent))
+            e = await repo.get(1, event_id)
+            got = e.status.value if want in ("done", "cancelled") else f"{e.starts_at.astimezone(NOW.tzinfo):%Y-%m-%d %H:%M}"
+            if got != want:
+                error = f"{call.name}: {got} (ждали {want})"
+        ok += error is None
+        args = json.dumps(call.arguments, ensure_ascii=False) if call else reply.text[:60]
+        print(f"{'OK ' if error is None else 'ERR'} {phrase:<50} {error or ''}  {args if error else ''}")
     return ok
 
 
