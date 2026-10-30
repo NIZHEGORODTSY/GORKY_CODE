@@ -1,9 +1,13 @@
-from aiogram import F, Router
+import logging
+
+from aiogram import Bot, F, Router
 from aiogram.filters import CommandStart
-from aiogram.types import Message
+from aiogram.types import BufferedInputFile, Message
 
 from app.assistant.service import Assistant
+from app.speech.base import SpeechClient
 
+log = logging.getLogger(__name__)
 router = Router()
 
 GREETING = (
@@ -28,6 +32,26 @@ async def on_text(message: Message, assistant: Assistant) -> None:
 
 
 @router.message(F.voice)
-async def on_voice(message: Message) -> None:
-    # TODO(speech): STT через SaluteSpeech -> assistant.handle -> текст + TTS-ответ
-    await message.answer("Голосовые пока не поддерживаются — напиши текстом.")
+async def on_voice(message: Message, bot: Bot, assistant: Assistant, speech: SpeechClient | None) -> None:
+    if speech is None:
+        await message.answer("Голосовые сейчас не поддерживаются — напиши текстом.")
+        return
+    audio = await bot.download(message.voice)
+    try:
+        text = await speech.recognize(audio.read())
+    except Exception:
+        log.exception("STT failed")
+        await message.answer("Не получилось распознать голосовое — попробуй ещё раз или напиши текстом.")
+        return
+    if not text:
+        await message.answer("Не расслышал. Повтори, пожалуйста.")
+        return
+
+    reply = await assistant.handle(message.from_user.id, text)
+    await message.answer(f"🎙 «{text}»\n\n{reply}")
+    try:
+        voice = await speech.synthesize(reply)
+        await message.answer_voice(BufferedInputFile(voice, filename="reply.ogg"))
+    except Exception:
+        # Текстовый ответ уже отправлен — без голоса пользователь ничего не теряет
+        log.exception("TTS failed")

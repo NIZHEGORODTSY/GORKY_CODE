@@ -1,7 +1,7 @@
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -88,6 +88,30 @@ class EventRepository:
         q = q.order_by(func.ts_rank(tsvector, tsquery).desc(), EventRow.starts_at.desc().nulls_last())
         rows = await self._s.scalars(q.limit(limit))
         return [r.to_domain() for r in rows]
+
+    async def due_notifications(
+        self, now: datetime, meeting_lead: timedelta, max_age: timedelta
+    ) -> list[Event]:
+        """Напоминания, время которых наступило, и встречи, до которых осталось meeting_lead.
+
+        Старше max_age не берём: после долгого простоя бот не должен засыпать пользователя.
+        """
+        is_reminder = and_(EventRow.kind == EventKind.REMINDER.value, EventRow.starts_at <= now)
+        is_meeting = and_(EventRow.kind == EventKind.MEETING.value, EventRow.starts_at <= now + meeting_lead)
+        rows = await self._s.scalars(
+            select(EventRow)
+            .where(
+                EventRow.status == EventStatus.OPEN.value,
+                EventRow.notified_at.is_(None),
+                EventRow.starts_at > now - max_age,
+                or_(is_reminder, is_meeting),
+            )
+            .order_by(EventRow.starts_at)
+        )
+        return [r.to_domain() for r in rows]
+
+    async def mark_notified(self, event_id: int, at: datetime) -> None:
+        await self._s.execute(update(EventRow).where(EventRow.id == event_id).values(notified_at=at))
 
     async def set_status(self, user_id: int, event_id: int, status: EventStatus) -> bool:
         row = await self._s.scalar(
