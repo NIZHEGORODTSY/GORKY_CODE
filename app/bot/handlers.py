@@ -129,7 +129,12 @@ async def on_demo(callback: CallbackQuery, assistant: Assistant, public_base: st
     uid = callback.from_user.id
     if callback.data == "demo:load":
         await callback.answer("Загружаю…")
-        count = await assistant.load_demo(uid)
+        try:
+            count = await assistant.load_demo(uid)
+        except Exception:
+            log.exception("demo import failed")
+            await callback.message.answer("😕 Не получилось загрузить демо-данные — попробуй ещё раз чуть позже.")
+            return
         note = f"📥 Загрузил {count} записей." if count else "Демо-данные уже загружены."
     else:
         count = await assistant.clear_demo(uid)

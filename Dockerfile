@@ -12,5 +12,6 @@ COPY alembic.ini .
 COPY migrations ./migrations
 COPY app ./app
 COPY certs ./certs
+COPY assets ./assets
 
 CMD ["sh", "-c", "alembic upgrade head && python -m app.main"]
