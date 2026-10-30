@@ -14,9 +14,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # pgvector понадобится модулю search
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-
     op.create_table(
         "users",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=False),
