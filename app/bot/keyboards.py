@@ -24,7 +24,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 
-from app.core.formatting import KIND_ICON, MONTHS_GEN
+from app.core.formatting import MONTHS_GEN
 from app.core.models import Event, EventKind, EventStatus, UserSettings
 
 BTN_MENU = "🏠 Меню"
@@ -93,7 +93,7 @@ def list_actions(events: list[Event], view: str, anchor: date) -> InlineKeyboard
             continue
         seen.add(e.id)
         title = e.title if len(e.title) <= 28 else e.title[:27] + "…"
-        rows.append([btn(f"✓ {KIND_ICON[e.kind]} {title}", f"ls:{e.id}:{view}:{anchor.isoformat()}")])
+        rows.append([btn(f"✅ {title}", f"ls:{e.id}:{view}:{anchor.isoformat()}")])
     if view in ("d", "w"):
         step = timedelta(days=1 if view == "d" else 7)
         if view == "d":

@@ -28,7 +28,7 @@ def notification_text(e: Event, now: datetime) -> str:
     if e.kind == EventKind.MEETING:
         minutes = max(0, round((e.starts_at - now).total_seconds() / 60))
         head = f"Через {minutes} мин встреча" if minutes else "Начинается встреча"
-        return f"👥 <b>{head}</b>\n{escape(e.title)}"
+        return f"🤝 <b>{head}</b>\n{escape(e.title)}"
     return f"⏰ <b>Напоминаю</b>\n{escape(e.title)}"
 
 

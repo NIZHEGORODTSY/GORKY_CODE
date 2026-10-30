@@ -13,7 +13,7 @@ def test_meeting_notification_text():
     from tests.fakes import meeting
 
     now = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
-    assert notification_text(meeting(1, "Созвон", now + timedelta(minutes=15)), now) == "👥 <b>Через 15 мин встреча</b>\nСозвон"
+    assert notification_text(meeting(1, "Созвон", now + timedelta(minutes=15)), now) == "🤝 <b>Через 15 мин встреча</b>\nСозвон"
 
 
 def test_for_speech_strips_html_and_emoji():

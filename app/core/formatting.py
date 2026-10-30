@@ -20,7 +20,7 @@ MONTHS_GEN = [
     "июля", "августа", "сентября", "октября", "ноября", "декабря",
 ]
 KIND_LABEL = {EventKind.TASK: "задача", EventKind.REMINDER: "напоминание", EventKind.MEETING: "встреча"}
-KIND_ICON = {EventKind.TASK: "📝", EventKind.REMINDER: "⏰", EventKind.MEETING: "👥"}
+KIND_ICON = {EventKind.TASK: "📝", EventKind.REMINDER: "⏰", EventKind.MEETING: "🤝"}
 ALL_DAY = "весь день"
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -96,7 +96,7 @@ def fmt_created(e: Event, tz: ZoneInfo, today: date) -> str:
 
 
 def _line(e: Event, tz: ZoneInfo) -> str:
-    """Строка списка: «<code>10:00</code>  👥 Созвон с командой»."""
+    """Строка списка: «<code>10:00</code>  🤝 Созвон с командой»."""
     time_part = ALL_DAY if e.all_day or e.starts_at is None else f"{e.starts_at.astimezone(tz):%H:%M}"
     title = escape(e.title)
     if e.status == EventStatus.DONE:
