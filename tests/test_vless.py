@@ -25,3 +25,22 @@ def test_ws_tls_link():
     stream = cfg["outbounds"][0]["streamSettings"]
     assert stream["wsSettings"] == {"path": "/ws", "headers": {"Host": "cdn.example"}}
     assert stream["tlsSettings"]["serverName"] == "cdn.example"
+
+
+def test_json_subscription_and_placeholders():
+    import json
+
+    from scripts.vless_to_xray import _address, _parse_json, _parse_links
+
+    body = json.dumps([
+        {"remarks": "🇩🇪 DE", "outbounds": [
+            {"tag": "proxy", "protocol": "vless", "settings": {"vnext": [{"address": "de.example", "port": 443}]}},
+            {"tag": "direct", "protocol": "freedom"}]},
+        {"remarks": "Приложение не поддерживается", "outbounds": [
+            {"protocol": "vless", "settings": {"vnext": [{"address": "0.0.0.0", "port": 1}]}}]},
+    ])
+    servers = _parse_json(body)
+    assert [name for name, _ in servers] == ["🇩🇪 DE", "Приложение не поддерживается"]
+    assert "tag" not in servers[0][1] and _address(servers[0][1]) == "de.example"
+    assert _address(servers[1][1]) == "0.0.0.0"
+    assert _parse_links(REALITY)[0][0] == "🇳🇱 NL"
