@@ -11,7 +11,8 @@ class Settings(BaseSettings):
 
     gigachat_credentials: str = ""
     gigachat_scope: str = "GIGACHAT_API_PERS"
-    gigachat_model: str = "GigaChat"
+    gigachat_model: str = "GigaChat-3-Pro"
+    gigachat_embeddings_model: str = "Embeddings"
 
     salute_speech_credentials: str = ""
     salute_speech_scope: str = "SALUTE_SPEECH_PERS"
