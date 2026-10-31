@@ -52,27 +52,32 @@ def btn(text: str, data: str) -> InlineKeyboardButton:
 BACK_TO_MENU = [btn("⬅️ Меню", "v:home")]
 
 
-def reply_menu(webapp_url: str = "") -> ReplyKeyboardMarkup:
-    """Постоянная клавиатура внизу — только вход в панель (и календарь, если он доступен)."""
-    row = [KeyboardButton(text=BTN_MENU)]
-    if webapp_url:
-        row.append(KeyboardButton(text=BTN_CALENDAR, web_app=WebAppInfo(url=webapp_url)))
+def reply_menu() -> ReplyKeyboardMarkup:
+    """Постоянная клавиатура внизу — только вход в панель.
+
+    Mini App сюда не ставим: с кнопки клавиатуры Telegram открывает его без initData,
+    и сервер не может понять, чей это календарь. Календарь — inline-кнопкой в панели и кнопкой меню.
+    """
     return ReplyKeyboardMarkup(
-        keyboard=[row],
+        keyboard=[[KeyboardButton(text=BTN_MENU)]],
         resize_keyboard=True,
         is_persistent=True,
         input_field_placeholder="Скажи или напиши, что запланировать…",
     )
 
 
-def home_actions(today: date) -> InlineKeyboardMarkup:
+def home_actions(today: date, webapp_url: str = "") -> InlineKeyboardMarkup:
     tomorrow = today + timedelta(days=1)
-    return InlineKeyboardMarkup(inline_keyboard=[
+    rows = [
         [btn("📅 Сегодня", f"v:d:{today}"), btn("➡️ Завтра", f"v:d:{tomorrow}"), btn("🗓 Неделя", f"v:w:{today}")],
         [btn("📝 Задачи", "v:t"), btn("📆 В календарь", "v:export")],
         [btn("⚙️ Настройки", "v:settings"), btn("❓ Что я умею", "v:help")],
         [btn("📥 Демо-данные из задания", "v:demo")],
-    ])
+    ]
+    if webapp_url:
+        # inline-кнопка передаёт в Mini App подписанные данные пользователя (initData)
+        rows.insert(2, [InlineKeyboardButton(text=BTN_CALENDAR, web_app=WebAppInfo(url=webapp_url))])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def demo_load_only() -> InlineKeyboardMarkup:

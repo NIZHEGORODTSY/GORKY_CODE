@@ -37,3 +37,14 @@ def test_list_buttons_open_card_and_card_has_actions():
     assert rows[0][0].callback_data == "it:7:d:2026-10-31"
     card = [b.callback_data for row in item_actions(e, "d", date(2026, 10, 31)).inline_keyboard for b in row]
     assert card == ["ls:7:d:2026-10-31", "lx:7:d:2026-10-31", "v:d:2026-10-31", "v:home"]
+
+
+def test_calendar_is_inline_web_app_not_reply_keyboard():
+    from datetime import date
+
+    from app.bot.keyboards import home_actions, reply_menu
+
+    assert all(b.web_app is None for row in reply_menu().keyboard for b in row)
+    buttons = [b for row in home_actions(date(2026, 11, 1), "https://gorky.po-bvi.ru/app/").inline_keyboard for b in row]
+    assert any(b.web_app and b.web_app.url == "https://gorky.po-bvi.ru/app/" for b in buttons)
+    assert not any(b.web_app for row in home_actions(date(2026, 11, 1)).inline_keyboard for b in row)

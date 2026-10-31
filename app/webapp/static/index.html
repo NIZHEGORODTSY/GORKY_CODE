@@ -55,7 +55,10 @@
   .legend { display: flex; gap: 14px; justify-content: center; font-size: 12px; color: var(--hint); margin-top: 10px; }
   .legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
   .lt::before { background: var(--task); } .lr::before { background: var(--reminder); } .lm::before { background: var(--meeting); }
-  .error { color: var(--danger); text-align: center; padding: 24px; }
+  .error { color: var(--text); text-align: center; padding: 48px 24px; font-weight: 600; }
+  .error .hint { color: var(--hint); font-weight: 400; margin-top: 8px; }
+  .error .retry { margin-top: 18px; border: 0; border-radius: 12px; padding: 10px 22px; font: inherit;
+                  background: var(--accent); color: var(--accent-text); cursor: pointer; }
 </style>
 </head>
 <body>
@@ -119,9 +122,14 @@ const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")
 const parse = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 
+class ApiError extends Error {
+  constructor(status, text) { super(status + " " + text); this.status = status; }
+}
+
 async function api(path, options = {}) {
+  if (!tg.initData) throw new ApiError(401, "no init data");
   const res = await fetch(path, { ...options, headers: { Authorization: "tma " + tg.initData } });
-  if (!res.ok) throw new Error(res.status + " " + await res.text());
+  if (!res.ok) throw new ApiError(res.status, await res.text());
   return res.json();
 }
 
@@ -214,7 +222,16 @@ document.getElementById("next").onclick = () => shiftMonth(1);
 
 function showError(err) {
   console.error(err);
-  document.body.replaceChildren(el("div", "error", "Открой календарь из бота в Telegram — так я узнаю, чьи это планы."));
+  const box = el("div", "error");
+  if (err && err.status === 401) {
+    box.append(el("div", null, "Не получилось узнать, чей это календарь."),
+               el("div", "hint", "Открой его кнопкой «🗂 Календарь» в меню бота или слева от поля ввода."));
+  } else {
+    const retry = el("button", "retry", "Повторить");
+    retry.onclick = () => location.reload();
+    box.append(el("div", null, "Нет связи с сервером."), el("div", "hint", "Проверь интернет и попробуй ещё раз."), retry);
+  }
+  document.body.replaceChildren(box);
 }
 
 const now = new Date();

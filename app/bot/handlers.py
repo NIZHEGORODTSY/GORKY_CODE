@@ -100,16 +100,16 @@ DEMO_TRY = (
 # --- вход в панель -------------------------------------------------------------
 
 @router.message(CommandStart())
-async def on_start(message: Message, bot: Bot, assistant: Assistant, webapp_url: str, public_base: str) -> None:
+async def on_start(message: Message, bot: Bot, assistant: Assistant, public_base: str) -> None:
     name = escape(message.from_user.first_name or "")
     caption = WELCOME.format(hello=f"Привет, {name}!" if name else "Привет!")
     photo = _welcome_photo_id or FSInputFile(WELCOME_IMAGE)
     try:
-        sent = await message.answer_photo(photo, caption=caption, reply_markup=reply_menu(webapp_url))
+        sent = await message.answer_photo(photo, caption=caption, reply_markup=reply_menu())
         _remember_welcome_photo(sent)
     except TelegramBadRequest:
         # Картинка недоступна — приветствие всё равно должно дойти
-        await message.answer(caption, reply_markup=reply_menu(webapp_url))
+        await message.answer(caption, reply_markup=reply_menu())
     await _show_panel(bot, message.chat.id, *await _render(assistant, message.from_user.id, "home", None, public_base))
 
 
@@ -274,7 +274,7 @@ async def on_event_button(callback: CallbackQuery, assistant: Assistant) -> None
 async def _render(assistant: Assistant, user_id: int, view: str, anchor: date | None, public_base: str):
     """(текст, клавиатура) раздела панели."""
     if view == "home":
-        return await _home(assistant, user_id)
+        return await _home(assistant, user_id, public_base)
     if view == "help":
         return HELP, back_only()
     if view == "demo":
@@ -314,7 +314,7 @@ async def _render(assistant: Assistant, user_id: int, view: str, anchor: date | 
     return _list_title(result, view, anchor), list_actions(result.events, view, anchor, tz)
 
 
-async def _home(assistant: Assistant, user_id: int):
+async def _home(assistant: Assistant, user_id: int, public_base: str = ""):
     today = await _local_today(assistant, user_id)
     result = await assistant.run_action(
         user_id, ToolCall("list_events", {"period": "custom", "date_from": today.isoformat(), "date_to": today.isoformat()})
@@ -325,7 +325,7 @@ async def _home(assistant: Assistant, user_id: int):
         f"🏠 <b>{_day_title(today)}</b> — {plans}\n\n"
         "Напиши или скажи, что запланировать, или выбери раздел 👇"
     )
-    return text, home_actions(today)
+    return text, home_actions(today, f"{public_base}/app/" if public_base else "")
 
 
 def _list_title(result: ActionResult, view: str, anchor: date) -> str:
